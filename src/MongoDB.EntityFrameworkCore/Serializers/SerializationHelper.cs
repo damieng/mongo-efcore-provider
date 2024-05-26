@@ -14,6 +14,8 @@
  */
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -115,6 +117,8 @@ internal static class SerializationHelper
             _ when type.IsEnum => EnumSerializer.Create(type),
             {IsGenericType: true} when type.GetGenericTypeDefinition() == typeof(Nullable<>)
                 => CreateNullableSerializer(type.GetGenericArguments()[0]),
+            {IsGenericType: true} when SupportedDictionaryTypes.Contains(type.GetGenericTypeDefinition())
+                => new DictionarySerializationProvider().GetSerializer(type),
             {IsGenericType: true} or {IsArray: true} => new CollectionSerializationProvider().GetSerializer(type),
             _ => throw new NotSupportedException($"No known serializer for type '{type.ShortDisplayName()}'."),
         };
@@ -129,6 +133,8 @@ internal static class SerializationHelper
 
     private static IBsonSerializer CreateNullableSerializer(Type elementType)
         => (IBsonSerializer)Activator.CreateInstance(typeof(NullableSerializer<>).MakeGenericType(elementType))!;
+
+    private static readonly Type[] SupportedDictionaryTypes = [typeof(Dictionary<,>), typeof(IDictionary<,>), typeof(IReadOnlyDictionary<,>)];
 
     private static bool TryReadElementValue<T>(BsonDocument document, BsonSerializationInfo elementSerializationInfo, out T value)
     {

@@ -82,6 +82,11 @@ public class MongoTypeMappingSource(TypeMappingSourceDependencies dependencies)
             {
                 return CreateCollectionTypeMapping(clrType, elementType);
             }
+
+            if (IsTypeOrHasInterface(genericTypeDefinition, SupportedDictionaryTypes, SupportedDictionaryInterfaces))
+            {
+                return CreateDictionaryTypeMapping(clrType, elementType);
+            }
         }
 
         return null;
@@ -156,4 +161,50 @@ public class MongoTypeMappingSource(TypeMappingSourceDependencies dependencies)
             return modelClrType;
         }
     }
+
+    private MongoTypeMapping? CreateDictionaryTypeMapping(Type clrType, Type itemType)
+    {
+        var genericArguments = clrType.GenericTypeArguments;
+        if (genericArguments[0] != typeof(string))
+        {
+            return null;
+        }
+
+        var elementType = genericArguments[1];
+        var elementMappingInfo = new TypeMappingInfo(elementType);
+        var elementMapping = FindPrimitiveMapping(elementMappingInfo)
+                             ?? FindCollectionMapping(elementMappingInfo);
+        return elementMapping == null
+            ? null
+            : new MongoTypeMapping(
+                clrType, CreateStringDictionaryComparer(elementMapping, elementType, clrType));
+    }
+
+    private static ValueComparer CreateStringDictionaryComparer(
+        CoreTypeMapping elementMapping,
+        Type elementType,
+        Type dictType,
+        bool readOnly = false)
+    {
+        var unwrappedType = elementType.UnwrapNullableType();
+
+        return (ValueComparer)Activator.CreateInstance(
+            elementType == unwrappedType
+                ? typeof(StringDictionaryComparer<,>).MakeGenericType(elementType, dictType)
+                : typeof(NullableStringDictionaryComparer<,>).MakeGenericType(unwrappedType, dictType),
+            elementMapping.Comparer,
+            readOnly)!;
+    }
+
+
+    private static readonly Type[] SupportedDictionaryTypes =
+    [
+        typeof(Dictionary<,>)
+    ];
+
+    private static readonly Type[] SupportedDictionaryInterfaces =
+    [
+        typeof(IDictionary<,>),
+        typeof(IReadOnlyDictionary<,>)
+    ];
 }
