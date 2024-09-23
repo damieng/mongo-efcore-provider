@@ -122,7 +122,8 @@ public static class MongoPropertyBuilderExtensions
         BsonType? bsonType,
         bool? allowOverflow = null,
         bool? allowTruncation = null)
-        => (PropertyBuilder<TProperty>)HasBsonRepresentation((PropertyBuilder)propertyBuilder, bsonType, allowOverflow, allowTruncation);
+        => (PropertyBuilder<TProperty>)HasBsonRepresentation((PropertyBuilder)propertyBuilder, bsonType, allowOverflow,
+            allowTruncation);
 
     /// <summary>
     /// Configures the BSON representation that the property is stored as when targeting MongoDB.
@@ -190,4 +191,95 @@ public static class MongoPropertyBuilderExtensions
         propertyBuilder.Metadata.SetDateTimeKind(dateTimeKind);
         return propertyBuilder;
     }
+
+    /// <summary>
+    /// Configures the default value for the property when the element it maps to is missing in a MongoDB document.
+    /// </summary>
+    /// <remarks>
+    /// When called with no argument, this method tells EF that a property should just assume the default value for
+    /// the CLR type of the property when the element it maps to is missing in a MongoDB document.
+    /// </remarks>
+    /// <param name="propertyBuilder">The builder for the property being configured.</param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    public static PropertyBuilder HasDefaultValueWhenMissing(this PropertyBuilder propertyBuilder)
+    {
+        propertyBuilder.Metadata.SetDefaultValueWhenMissing(null);
+        return propertyBuilder;
+    }
+
+    /// <summary>
+    /// Configures the default value for the property when the element it maps to is missing in a MongoDB document.
+    /// </summary>
+    /// <param name="propertyBuilder">The builder for the property being configured.</param>
+    /// <param name="value">The default value for the property.</param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    public static PropertyBuilder HasDefaultValueWhenMissing(
+        this PropertyBuilder propertyBuilder,
+        object? value)
+    {
+        propertyBuilder.Metadata.SetDefaultValueWhenMissing(value);
+        return propertyBuilder;
+    }
+
+    /// <summary>
+    /// Configures the default value for the property when the element it maps to is missing in a MongoDB document.
+    /// </summary>
+    /// <remarks>
+    /// When called with no argument, this method tells EF that a property should just assume the default value for
+    /// the CLR type of the property when the element it maps to is missing in a MongoDB document.
+    /// </remarks>
+    /// <typeparam name="TProperty">The type of the property being configured.</typeparam>
+    /// <param name="propertyBuilder">The builder for the property being configured.</param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    public static PropertyBuilder<TProperty> HasDefaultValueWhenMissing<TProperty>(
+        this PropertyBuilder<TProperty> propertyBuilder)
+        => (PropertyBuilder<TProperty>)HasDefaultValueWhenMissing((PropertyBuilder)propertyBuilder);
+
+    /// <summary>
+    /// Configures the default value for the property when the element it maps to is missing in a MongoDB document.
+    /// </summary>
+    /// <typeparam name="TProperty">The type of the property being configured.</typeparam>
+    /// <param name="propertyBuilder">The builder for the property being configured.</param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    public static PropertyBuilder<TProperty> HasDefaultValueWhenMissing<TProperty>(
+        this PropertyBuilder<TProperty> propertyBuilder,
+        object? value)
+        => (PropertyBuilder<TProperty>)HasDefaultValueWhenMissing((PropertyBuilder)propertyBuilder, value);
+
+    /// <summary>
+    /// Configures the default value for the element that the property maps to when targeting MongoDB.
+    /// </summary>
+    /// <param name="propertyBuilder">The builder for the property being configured.</param>
+    /// <param name="value">The default value of the column.</param>
+    /// <param name="fromDataAnnotation">Indicates whether the configuration was specified using a data annotation.</param>
+    /// <returns>The same builder instance if the configuration was applied, <see langword="null" /> otherwise.</returns>
+    public static IConventionPropertyBuilder? HasDefaultValueWhenMissing(
+        this IConventionPropertyBuilder propertyBuilder,
+        object? value,
+        bool fromDataAnnotation = false)
+    {
+        if (!propertyBuilder.CanSetDefaultValueWhenMissing(value, fromDataAnnotation))
+        {
+            return null;
+        }
+
+        propertyBuilder.Metadata.SetDefaultValueWhenMissing(value, fromDataAnnotation);
+        return propertyBuilder;
+    }
+
+    /// <summary>
+    /// Returns a value indicating whether the given value can be set as default for the column.
+    /// </summary>
+    /// <param name="propertyBuilder">The builder for the property being configured.</param>
+    /// <param name="value">The default value of the column.</param>
+    /// <param name="fromDataAnnotation">Indicates whether the configuration was specified using a data annotation.</param>
+    /// <returns><see langword="true" /> if the given value can be set as default for the column.</returns>
+    public static bool CanSetDefaultValueWhenMissing(
+        this IConventionPropertyBuilder propertyBuilder,
+        object? value,
+        bool fromDataAnnotation = false)
+        => propertyBuilder.CanSetAnnotation(
+            MongoAnnotationNames.DefaultValueWhenMissing,
+            value,
+            fromDataAnnotation);
 }

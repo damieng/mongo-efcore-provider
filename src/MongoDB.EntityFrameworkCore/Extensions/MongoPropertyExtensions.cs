@@ -15,6 +15,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Microsoft.EntityFrameworkCore.Metadata;
 using MongoDB.Bson;
@@ -226,6 +227,91 @@ public static class MongoPropertyExtensions
         var dateTimeKindAnnotation = property.FindAnnotation(MongoAnnotationNames.DateTimeKind);
         return dateTimeKindAnnotation?.Value == null ? DateTimeKind.Unspecified : (DateTimeKind)dateTimeKindAnnotation.Value;
     }
+
+    /// <summary>
+    /// Returns the object that is used as the default value for this property when the element it is mapped to is missing.
+    /// </summary>
+    /// <param name="property">The property.</param>
+    /// <returns>The object that is used as the default value for this property when the element it is mapped to is missing.</returns>
+    public static object? GetDefaultValueWhenMissing(this IReadOnlyProperty property)
+    {
+        property.TryGetDefaultValueWhenMissing(out var defaultValue);
+        return defaultValue;
+    }
+
+    /// <summary>
+    /// Returns the object that is used as the default value for this property when the element it is mapped to is missing.
+    /// </summary>
+    /// <param name="property">The property.</param>
+    /// <param name="defaultValue">The default value, or the CLR default if no explicit default has been set.</param>
+    /// <returns><see langword="true" /> if a default value has been explicitly set; <see langword="false" /> otherwise.</returns>
+    public static bool TryGetDefaultValueWhenMissing(this IReadOnlyProperty property, out object? defaultValue)
+    {
+        var annotation = property.FindAnnotation(MongoAnnotationNames.DefaultValueWhenMissing);
+
+        if (annotation != null)
+        {
+            defaultValue = annotation.Value;
+            return defaultValue != null;
+        }
+
+        defaultValue = property.ClrType.IsValueType ? Activator.CreateInstance(property.ClrType) : null;
+        return false;
+    }
+
+    /// <summary>
+    /// Sets the object that is used as the default value for this property when the element it is mapped to is missing.
+    /// </summary>
+    /// <param name="property">The property.</param>
+    /// <param name="value">The value to set.</param>
+    public static void SetDefaultValueWhenMissing(this IMutableProperty property, object? value)
+        => property.SetOrRemoveAnnotation(MongoAnnotationNames.DefaultValueWhenMissing, ConvertDefaultValue(property, value));
+
+    /// <summary>
+    /// Sets the object that is used as the default value for this property when the element it is mapped to is missing.
+    /// </summary>
+    /// <param name="property">The property.</param>
+    /// <param name="value">The value to set.</param>
+    /// <param name="fromDataAnnotation">Indicates whether the configuration was specified using a data annotation.</param>
+    /// <returns>The configured value.</returns>
+    public static object? SetDefaultValueWhenMissing(
+        this IConventionProperty property,
+        object? value,
+        bool fromDataAnnotation = false)
+        => property.SetOrRemoveAnnotation(
+            MongoAnnotationNames.DefaultValueWhenMissing,
+            ConvertDefaultValue(property, value),
+            fromDataAnnotation)?.Value;
+
+    private static object? ConvertDefaultValue(IReadOnlyProperty property, object? value)
+    {
+        if (value == null) return value;
+
+        var valueType = value.GetType();
+        if (!property.ClrType.UnwrapNullableType().IsAssignableFrom(valueType))
+        {
+            try
+            {
+                return Convert.ChangeType(value, property.ClrType, CultureInfo.InvariantCulture);
+            }
+            catch (Exception)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot set default when missing value '{value}' of type '{valueType}' on property '{property.Name}' of type '{
+                        property.ClrType}' in entity type '{property.DeclaringType.DisplayName()}'.");
+            }
+        }
+
+        return value;
+    }
+
+    /// <summary>
+    /// Gets the <see cref="ConfigurationSource" /> for the default value when missing.
+    /// </summary>
+    /// <param name="property">The property.</param>
+    /// <returns>The <see cref="ConfigurationSource" /> for the default value when missing.</returns>
+    public static ConfigurationSource? GetDefaultValueWhenMissingConfigurationSource(this IConventionProperty property)
+        => property.FindAnnotation(MongoAnnotationNames.DefaultValueWhenMissing)?.GetConfigurationSource();
 
     internal static bool IsOwnedCollectionShadowKey(this IReadOnlyProperty property)
     {

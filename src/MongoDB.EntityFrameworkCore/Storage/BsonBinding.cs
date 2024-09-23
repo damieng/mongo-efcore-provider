@@ -17,6 +17,7 @@ using System;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Metadata;
 using MongoDB.Bson;
@@ -150,16 +151,20 @@ internal static class BsonBinding
         {
             if (value == null && !property.IsNullable)
             {
-                throw new InvalidOperationException($"Document element is null for required non-nullable property '{property.Name
-                }'.");
+                throw new InvalidOperationException($"Document element is null for property '{property.DeclaringType.DisplayName()}.{property.Name}' which is not nullable.");
             }
 
             return value;
         }
 
+        if (property.TryGetDefaultValueWhenMissing(out var defaultValue))
+        {
+            return (T?)defaultValue;
+        }
+
         if (property.IsNullable) return default;
 
-        throw new InvalidOperationException($"Document element is missing for required non-nullable property '{property.Name}'.");
+        throw new InvalidOperationException($"Document element is missing for property '{property.DeclaringType.DisplayName()}.{property.Name}' which is not nullable nor has a specified default value when missing.");
     }
 
     internal static T? GetElementValue<T>(BsonDocument document, string elementName)

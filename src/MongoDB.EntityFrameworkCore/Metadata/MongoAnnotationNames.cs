@@ -16,7 +16,7 @@
 namespace MongoDB.EntityFrameworkCore.Metadata;
 
 /// <summary>
-/// Names for well-known Mongo model annotations. Applications should not use these names
+/// Names for well-known MongoDB model annotations. Applications should not use these names
 /// directly, but should instead use the extension methods on metadata objects.
 /// </summary>
 public static class MongoAnnotationNames
@@ -50,4 +50,9 @@ public static class MongoAnnotationNames
     /// The key for Bson Representation annotations.
     /// </summary>
     public const string BsonRepresentation = Prefix + nameof(BsonRepresentation);
+
+    /// <summary>
+    /// The key for default values when element missing in the BSON document.
+    /// </summary>
+    public const string DefaultValueWhenMissing = Prefix + nameof(DefaultValueWhenMissing);
 }
