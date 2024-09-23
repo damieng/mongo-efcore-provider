@@ -54,6 +54,7 @@ public class MongoConventionSetBuilder : ProviderConventionSetBuilder
 
         // Convenience conventions for users familiar with the Mongo C# Driver
         conventionSet.Add(new BsonDateTimeOptionsAttributeConvention(Dependencies));
+        conventionSet.Add(new BsonDefaultValueAttributeConvention(Dependencies));
         conventionSet.Add(new BsonElementAttributeConvention(Dependencies));
         conventionSet.Add(new BsonIdPropertyAttributeConvention(Dependencies));
         conventionSet.Add(new BsonIgnoreAttributeConvention(Dependencies));
@@ -61,8 +62,7 @@ public class MongoConventionSetBuilder : ProviderConventionSetBuilder
         conventionSet.Add(new BsonRequiredPropertyAttributeConvention(Dependencies));
 
         // Unsupported attributes on properties that should throw not supported
-        // Note: Non-property level attributes are directly checked in MongoModelValidator.
-        conventionSet.Add(new BsonDefaultValueAttributeConvention(Dependencies));
+        // Note: Non-property level attributes are directly checked in MongoModelValidator
         conventionSet.Add(new BsonDictionaryOptionsAttributeConvention(Dependencies));
         conventionSet.Add(new BsonExtraElementsAttributeConvention(Dependencies));
         conventionSet.Add(new BsonGuidRepresentationAttributeConvention(Dependencies));
