@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -150,8 +151,11 @@ public class LoggingTests(SampleGuidesFixture fixture, ITestOutputHelper testOut
 
         var message = GetLogMessageByEventId(spyLogger);
         Assert.Contains("Executed MQL query", message);
-        Assert.Contains(_dbName + ".moons.aggregate([{ \"$match\" : { \"yearOfDiscovery\" : { \"$gt\" : 1900 } } }])",
-            message);
+        var parts = message.Split(".moons.aggregate");
+        using var jsonLog = JsonDocument.Parse(parts[1].Trim('(', ')'));
+        using var expected = JsonDocument.Parse("[{ \"$match\" : { \"yearOfDiscovery\" : { \"$gt\" : 1900 } } }]");
+
+        Assert.Equivalent(expected, jsonLog);
     }
 
     [Fact]

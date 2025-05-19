@@ -20,6 +20,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		tests\Directory.Build.props = tests\Directory.Build.props
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MongoDB.Driver", "..\mongo-csharp-driver\src\MongoDB.Driver\MongoDB.Driver.csproj", "{2D2C0C92-7F91-4FE0-AF17-B50B9DBBD32C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MongoDB.Driver.Encryption", "..\mongo-csharp-driver\src\MongoDB.Driver.Encryption\MongoDB.Driver.Encryption.csproj", "{A3F84DBD-B2C9-49CD-A6C1-1E9874DFED38}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -52,6 +56,22 @@ Global
 		{CDBD7CC4-0F4D-4B03-859E-71FE5A3DE363}.Debug EF9|Any CPU.Build.0 = Debug EF9|Any CPU
 		{CDBD7CC4-0F4D-4B03-859E-71FE5A3DE363}.Release EF9|Any CPU.ActiveCfg = Release EF9|Any CPU
 		{CDBD7CC4-0F4D-4B03-859E-71FE5A3DE363}.Release EF9|Any CPU.Build.0 = Release EF9|Any CPU
+		{2D2C0C92-7F91-4FE0-AF17-B50B9DBBD32C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2D2C0C92-7F91-4FE0-AF17-B50B9DBBD32C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2D2C0C92-7F91-4FE0-AF17-B50B9DBBD32C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2D2C0C92-7F91-4FE0-AF17-B50B9DBBD32C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2D2C0C92-7F91-4FE0-AF17-B50B9DBBD32C}.Debug EF9|Any CPU.ActiveCfg = Debug|Any CPU
+		{2D2C0C92-7F91-4FE0-AF17-B50B9DBBD32C}.Debug EF9|Any CPU.Build.0 = Debug|Any CPU
+		{2D2C0C92-7F91-4FE0-AF17-B50B9DBBD32C}.Release EF9|Any CPU.ActiveCfg = Debug|Any CPU
+		{2D2C0C92-7F91-4FE0-AF17-B50B9DBBD32C}.Release EF9|Any CPU.Build.0 = Debug|Any CPU
+		{A3F84DBD-B2C9-49CD-A6C1-1E9874DFED38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A3F84DBD-B2C9-49CD-A6C1-1E9874DFED38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A3F84DBD-B2C9-49CD-A6C1-1E9874DFED38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A3F84DBD-B2C9-49CD-A6C1-1E9874DFED38}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A3F84DBD-B2C9-49CD-A6C1-1E9874DFED38}.Debug EF9|Any CPU.ActiveCfg = Debug|Any CPU
+		{A3F84DBD-B2C9-49CD-A6C1-1E9874DFED38}.Debug EF9|Any CPU.Build.0 = Debug|Any CPU
+		{A3F84DBD-B2C9-49CD-A6C1-1E9874DFED38}.Release EF9|Any CPU.ActiveCfg = Debug|Any CPU
+		{A3F84DBD-B2C9-49CD-A6C1-1E9874DFED38}.Release EF9|Any CPU.Build.0 = Debug|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -10,8 +10,8 @@
     <DefineConstants>TRACE;RELEASE;EF9</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\..\mongo-csharp-driver\src\MongoDB.Driver.Encryption\MongoDB.Driver.Encryption.csproj" />
     <ProjectReference Include="..\..\src\MongoDB.EntityFrameworkCore\MongoDB.EntityFrameworkCore.csproj" />
-    <PackageReference Include="MongoDB.Driver.Encryption" Version="3.3.0" />
     <Compile Remove="Design\Generated\**" />
   </ItemGroup>
 
