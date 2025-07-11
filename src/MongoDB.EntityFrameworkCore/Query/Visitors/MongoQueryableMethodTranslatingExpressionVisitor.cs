@@ -52,6 +52,8 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
         return base.Visit(expression);
     }
 
+    private static readonly Type[] AllowedQueryableExtensions = [ typeof(Queryable), typeof(MongoQueryableExtensions), typeof(Driver.Linq.MongoQueryable) ];
+
     /// <summary>
     /// Visit the <see cref="MethodCallExpression"/> to capture the cardinality and final expression
     /// when found on a <see cref="Queryable"/> method.
@@ -62,7 +64,9 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
     protected override Expression VisitMethodCall(MethodCallExpression methodCallExpression)
     {
         var method = methodCallExpression.Method;
-        if (method.DeclaringType != typeof(Queryable)) return QueryCompilationContext.NotTranslatedExpression;
+
+        if (!AllowedQueryableExtensions.Contains(method.DeclaringType))
+            return QueryCompilationContext.NotTranslatedExpression;
 
         var source = Visit(methodCallExpression.Arguments[0]);
         if (source is ShapedQueryExpression shapedQueryExpression)
@@ -122,9 +126,7 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
     {
         // Handle .Select(p => p) no-op/pass-thru
         if (selector.Body == selector.Parameters[0])
-        {
             return source;
-        }
 
         var mongoQueryExpression = (MongoQueryExpression)source.QueryExpression;
         var newSelectorBody =
