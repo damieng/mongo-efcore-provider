@@ -209,78 +209,115 @@ internal class MongoUpdate(IUpdateEntry entry, WriteModel<BsonDocument> model)
         serializationInfo.Serializer.Serialize(root, value);
     }
 
+    private static bool IsEmbeddedInOwner(INavigation navigation)
+        => navigation is { IsOnDependent: false, ForeignKey.IsOwnership: true }
+           && !navigation.ForeignKey.DeclaringEntityType.IsDocumentRoot();
+
     private static void WriteOwnedEntities(IBsonWriter writer, IUpdateEntry entry)
     {
-        foreach (var navigation in entry.EntityType.GetNavigations())
+        foreach (var navigation in entry.EntityType.GetNavigations().Where(IsEmbeddedInOwner))
         {
-            var fk = navigation.ForeignKey;
-            if (!fk.IsOwnership
-                || navigation.IsOnDependent
-                || fk.DeclaringEntityType.IsDocumentRoot())
+            if (navigation.IsCollection)
             {
-                continue;
+                WriteOwnedEntityCollection(writer, entry, navigation);
             }
+            else
+            {
+                WriteOwnedEntity(writer, entry, navigation);
+            }
+        }
+    }
+
+    private static void WriteOwnedEntity(IBsonWriter writer, IUpdateEntry entry, INavigation navigation)
+    {
+        writer.WriteName(navigation.TargetEntityType.GetContainingElementName());
+
+        var value = entry.GetCurrentValue(navigation);
+        if (value == null)
+        {
+            writer.WriteNull();
+        }
+        else
+        {
+            var stateManager = ((InternalEntityEntry)entry).StateManager;
+            var ownedEntry = stateManager.TryGetEntry(value, navigation.ForeignKey.DeclaringEntityType)!;
+            WriteEntity(writer, ownedEntry, _ => true);
+        }
+    }
+
+    private static void WriteOwnedEntityCollection(IBsonWriter writer, IUpdateEntry entry, INavigation navigation)
+    {
+        var value = entry.GetCurrentValue(navigation);
+
+        if (value is null or ICollection<object> { Count: 0 })
+        {
+            // TODO: Can't get original value for a nav
+            var originalValue = entry.GetOriginalValue(navigation);
+            if (value == originalValue) return;
 
             writer.WriteName(navigation.TargetEntityType.GetContainingElementName());
-            var embeddedValue = entry.GetCurrentValue(navigation);
-
-            if (embeddedValue == null)
+            if (value == null)
             {
                 writer.WriteNull();
             }
             else
             {
-                if (navigation.IsCollection)
-                {
-                    // Set temporary ordinals if existing ones are invalid
-                    SetTemporaryOrdinals(entry, fk, embeddedValue);
-
-                    writer.WriteStartArray();
-                    var ordinal = 1;
-                    foreach (var dependent in (IEnumerable)embeddedValue)
-                    {
-                        var embeddedEntry =
-                            ((InternalEntityEntry)entry).StateManager.TryGetEntry(dependent,
-                                navigation.ForeignKey.DeclaringEntityType)!;
-
-                        // Owned entities have a synthetic key based on order, apply that here
-                        var ordinalKeyProperty = FindOrdinalKeyProperty(embeddedEntry.EntityType);
-                        if (ordinalKeyProperty != null && embeddedEntry.HasTemporaryValue(ordinalKeyProperty))
-                        {
-                            embeddedEntry.SetStoreGeneratedValue(ordinalKeyProperty, ordinal);
-                        }
-
-                        WriteEntity(writer, embeddedEntry, _ => true);
-                        ordinal++;
-                    }
-
-                    writer.WriteEndArray();
-                }
-                else
-                {
-                    var embeddedEntry =
-                        ((InternalEntityEntry)entry).StateManager.TryGetEntry(embeddedValue,
-                            navigation.ForeignKey.DeclaringEntityType)!;
-                    WriteEntity(writer, embeddedEntry, _ => true);
-                }
+                writer.WriteStartArray();
+                writer.WriteEndArray();
             }
-        }
-    }
 
-    private static void SetTemporaryOrdinals(IUpdateEntry entry, IForeignKey fk, object embeddedValue)
-    {
-        var embeddedOrdinal = 1;
-        var ordinalKeyProperty = FindOrdinalKeyProperty(fk.DeclaringEntityType);
-        if (ordinalKeyProperty == null) return;
+            return;
+        }
 
         var stateManager = ((InternalEntityEntry)entry).StateManager;
-        var shouldSetTemporaryKeys = false;
-        foreach (var dependent in (IEnumerable)embeddedValue)
-        {
-            var embeddedEntry = stateManager.TryGetEntry(dependent, fk.DeclaringEntityType)!;
 
-            if ((int)embeddedEntry.GetCurrentValue(ordinalKeyProperty)! != embeddedOrdinal
-                && !embeddedEntry.HasTemporaryValue(ordinalKeyProperty))
+        var childEntries = new List<InternalEntityEntry>();
+        foreach (var dependent in (IEnumerable)value)
+        {
+            childEntries.Add(stateManager.TryGetEntry(dependent, navigation.ForeignKey.DeclaringEntityType)!);
+        }
+
+        SetTemporaryOrdinals(childEntries, navigation);
+
+        var isCollectionChanged = false;
+        var ordinal = 1;
+        foreach (var childEntry in childEntries)
+        {
+            // Owned entities have a synthetic key based on order, apply that here
+            var ordinalKeyProperty = FindOrdinalKeyProperty(childEntry.EntityType);
+            if (ordinalKeyProperty != null && childEntry.HasTemporaryValue(ordinalKeyProperty))
+            {
+                childEntry.SetStoreGeneratedValue(ordinalKeyProperty, ordinal);
+            }
+
+            isCollectionChanged = isCollectionChanged || childEntry.EntityState != EntityState.Unchanged;
+            ordinal++;
+        }
+
+        if (!isCollectionChanged) return;
+
+        writer.WriteName(navigation.TargetEntityType.GetContainingElementName());
+        writer.WriteStartArray();
+        foreach (var embeddedEntry in childEntries)
+        {
+            WriteEntity(writer, embeddedEntry, _ => true);
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void SetTemporaryOrdinals(IList<InternalEntityEntry> childEntities, INavigation navigation)
+    {
+        var ordinalKeyProperty = FindOrdinalKeyProperty(navigation.ForeignKey.DeclaringEntityType);
+        if (ordinalKeyProperty == null) return;
+
+        var shouldSetTemporaryKeys = false;
+        var embeddedOrdinal = 1;
+
+        foreach (var childEntity in childEntities)
+        {
+            if ((int)childEntity.GetCurrentValue(ordinalKeyProperty)! != embeddedOrdinal
+                && !childEntity.HasTemporaryValue(ordinalKeyProperty))
             {
                 // We have old persisted ordinals that are no longer valid
                 // Set temporary ones to avoid key conflicts when creating new
@@ -292,15 +329,13 @@ internal class MongoUpdate(IUpdateEntry entry, WriteModel<BsonDocument> model)
             embeddedOrdinal++;
         }
 
-        if (shouldSetTemporaryKeys)
+        if (!shouldSetTemporaryKeys)  return;
+
+        var temporaryOrdinal = -1;
+        foreach (var childEntity in childEntities)
         {
-            var temporaryOrdinal = -1;
-            foreach (var dependent in (IEnumerable)embeddedValue)
-            {
-                var embeddedEntry = stateManager.TryGetEntry(dependent, fk.DeclaringEntityType)!;
-                embeddedEntry.SetTemporaryValue(ordinalKeyProperty, temporaryOrdinal, setModified: false);
-                temporaryOrdinal--;
-            }
+            childEntity.SetTemporaryValue(ordinalKeyProperty, temporaryOrdinal, setModified: false);
+            temporaryOrdinal--;
         }
     }
 }

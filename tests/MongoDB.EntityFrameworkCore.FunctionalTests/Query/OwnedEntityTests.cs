@@ -42,10 +42,8 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     public void OwnedEntity_nested_one_level_materializes_single_get_only()
     {
         database.CreateCollection<PersonWithLocation>().WriteTestDocs(PersonWithLocation1);
-        using var db = SingleEntityDbContext.Create(database.GetCollection<PersonWithGetOnlyLocation>(), mb =>
-        {
-            mb.Entity<PersonWithGetOnlyLocation>().OwnsOne(p => p.location);
-        });
+        using var db = SingleEntityDbContext.Create(database.GetCollection<PersonWithGetOnlyLocation>(),
+            mb => { mb.Entity<PersonWithGetOnlyLocation>().OwnsOne(p => p.location); });
 
         var actual = db.Entities.Single();
 
@@ -72,7 +70,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     public void OwnedEntity_nested_one_level_where_null()
     {
         var collection = database.CreateCollection<PersonWithOptionalLocation>();
-        collection.WriteTestDocs([new PersonWithOptionalLocation {_id = ObjectId.GenerateNewId(), name = "Milton"}]);
+        collection.WriteTestDocs([new PersonWithOptionalLocation { _id = ObjectId.GenerateNewId(), name = "Milton" }]);
         using var db = SingleEntityDbContext.Create(collection);
 
         var actual = db.Entities.Where(e => e.location == null).First();
@@ -155,7 +153,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     public void OwnedEntity_missing_document_element_does_not_throw()
     {
         database.CreateCollection<Person>().WriteTestDocs([
-            new Person {name = "Bill"}
+            new Person { name = "Bill" }
         ]);
 
         var collection = database.GetCollection<PersonWithOptionalLocation>();
@@ -214,7 +212,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     public void OwnedEntity_materializes_when_missing_non_required_owned_entity()
     {
         var collection = database.CreateCollection<Person>();
-        collection.WriteTestDocs([new Person {name = "Henry"}]);
+        collection.WriteTestDocs([new Person { name = "Henry" }]);
         using var db = SingleEntityDbContext.Create(database.GetCollection<PersonWithLocation>(),
             mb => { mb.Entity<PersonWithLocation>().Navigation(p => p.location).IsRequired(false); });
 
@@ -258,7 +256,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     {
         var collection = database.CreateCollection<PersonWithLocation>();
         var expected =
-            new PersonWithLocation {name = "Charlie", location = new Location {latitude = 1.234m, longitude = 1.567m}};
+            new PersonWithLocation { name = "Charlie", location = new Location { latitude = 1.234m, longitude = 1.567m } };
 
         {
             using var db = SingleEntityDbContext.Create(collection);
@@ -277,6 +275,93 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     }
 
     [Fact]
+    public void OwnedEntity_single_is_updated_if_changed()
+    {
+        var collection = database.CreateCollection<PersonWithLocation>();
+        var originalEntity = PersonWithLocation1[0];
+
+        using var outerDb = SingleEntityDbContext.Create(collection);
+        outerDb.Entities.Add(originalEntity);
+        outerDb.SaveChanges();
+
+        {
+            using var innerDb = SingleEntityDbContext.Create(collection);
+            var entity = innerDb.Entities.First();
+            entity.location.latitude = 42.42m;
+            innerDb.SaveChanges();
+        }
+
+        originalEntity.location.longitude = 12.12m;
+        outerDb.SaveChanges();
+
+        {
+            using var innerDb = SingleEntityDbContext.Create(collection);
+            var entity = innerDb.Entities.First();
+            Assert.Equal(originalEntity.location.latitude, entity.location.latitude);
+        }
+    }
+
+    [Fact]
+    public void OwnedEntity_single_is_not_updated_if_not_changed()
+    {
+        var collection = database.CreateCollection<PersonWithLocation>();
+
+        const string expectedName = "Charles";
+        var originalEntity = PersonWithLocation1[0];
+
+        using var outerDb = SingleEntityDbContext.Create(collection);
+        outerDb.Entities.Add(originalEntity);
+        outerDb.SaveChanges();
+
+        {
+            using var innerDb = SingleEntityDbContext.Create(collection);
+            var entity = innerDb.Entities.First();
+            entity.location.latitude = 5.432m;
+            innerDb.SaveChanges();
+        }
+
+        originalEntity.name = expectedName;
+        outerDb.SaveChanges();
+
+        {
+            using var innerDb = SingleEntityDbContext.Create(collection);
+            var entity = innerDb.Entities.First();
+            Assert.Equal(expectedName, entity.name);
+            Assert.Equal(originalEntity.location.latitude, entity.location.latitude);
+        }
+    }
+
+    [Fact]
+    public void OwnedEntity_list_is_not_updated_if_not_changed()
+    {
+        var collection = database.CreateCollection<PersonWithMultipleLocations>();
+        var expectedLocation = new Location { latitude = 15.432m, longitude = 61.567m };
+
+        var originalPerson = PersonWithLocations1[0];
+        using var outerDb = SingleEntityDbContext.Create(collection);
+        outerDb.Entities.AddRange(PersonWithLocations1);
+        outerDb.SaveChanges();
+
+        {
+            using var innerDb = SingleEntityDbContext.Create(collection);
+            var entity = innerDb.Entities.First();
+            entity.locations.Add(expectedLocation);
+            innerDb.SaveChanges();
+        }
+
+        originalPerson.name = "Ralph";
+        outerDb.SaveChanges();
+
+        {
+            using var innerDb = SingleEntityDbContext.Create(collection);
+            var entity = innerDb.Entities.First();
+            Assert.Equal(originalPerson.locations.Count + 1, entity.locations.Count);
+            Assert.Equal(expectedLocation.latitude, entity.locations.Last().latitude);
+            Assert.Equal(expectedLocation.longitude, entity.locations.Last().longitude);
+        }
+    }
+
+    [Fact]
     public void OwnedEntity_collection_creates()
     {
         var collection =
@@ -288,9 +373,9 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
             name = "Alfred",
             locations =
             [
-                new() {latitude = 1.234m, longitude = 1.567m},
+                new() { latitude = 1.234m, longitude = 1.567m },
 
-                new() {latitude = 5.1m, longitude = 3.9m}
+                new() { latitude = 5.1m, longitude = 3.9m }
             ]
         };
 
@@ -319,7 +404,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
 
         var id = ObjectId.GenerateNewId();
         var expectedName = Guid.NewGuid().ToString();
-        var expectedLocation = new Location {latitude = 1.234m, longitude = 1.567m};
+        var expectedLocation = new Location { latitude = 1.234m, longitude = 1.567m };
 
         var modelBuilder = (ModelBuilder mb) =>
         {
@@ -337,7 +422,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
 
         {
             using var dbContext = SingleEntityDbContext.Create(collection, modelBuilder);
-            dbContext.Entities.Add(new PersonWithLocation {_id = id, name = expectedName, location = expectedLocation});
+            dbContext.Entities.Add(new PersonWithLocation { _id = id, name = expectedName, location = expectedLocation });
             dbContext.SaveChanges();
         }
 
@@ -357,7 +442,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
 
         var id = ObjectId.GenerateNewId();
         var expectedName = Guid.NewGuid().ToString();
-        var expectedLocation = new Location {latitude = 1.234m, longitude = 1.567m};
+        var expectedLocation = new Location { latitude = 1.234m, longitude = 1.567m };
 
         var modelBuilder = (ModelBuilder mb) =>
         {
@@ -375,7 +460,8 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
 
         {
             using var dbContext = SingleEntityDbContext.Create(collection, modelBuilder);
-            dbContext.Entities.Add(new PersonWithMultipleLocations {_id = id, name = expectedName, locations = [expectedLocation]});
+            dbContext.Entities.Add(
+                new PersonWithMultipleLocations { _id = id, name = expectedName, locations = [expectedLocation] });
             dbContext.SaveChanges();
         }
 
@@ -416,7 +502,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     {
         var collection = database.CreateCollection<SimpleNonNullableCollection>();
         collection.WriteTestDocs([
-            new SimpleNonNullableCollection {children = []}
+            new SimpleNonNullableCollection { children = [] }
         ]);
         using var db = SingleEntityDbContext.Create(collection);
 
@@ -429,7 +515,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     {
         var collection = database.CreateCollection<SimpleNullableCollection>();
         collection.WriteTestDocs([
-            new SimpleNullableCollection {children = []}
+            new SimpleNullableCollection { children = [] }
         ]);
         using var db = SingleEntityDbContext.Create(collection);
 
@@ -443,7 +529,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     {
         var collection = database.CreateCollection<SimpleNonNullableCollection>();
         collection.WriteTestDocs([
-            new SimpleNonNullableCollection {children = null!}
+            new SimpleNonNullableCollection { children = null! }
         ]);
         using var db = SingleEntityDbContext.Create(collection);
 
@@ -456,7 +542,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     {
         var collection = database.CreateCollection<SimpleNullableCollection>();
         collection.WriteTestDocs([
-            new SimpleNullableCollection {children = null}
+            new SimpleNullableCollection { children = null }
         ]);
         using var db = SingleEntityDbContext.Create(collection);
 
@@ -539,20 +625,18 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     [Fact]
     public void OwnedEntity_with_ienumerable_collection_materializes_many()
     {
-        var expectedLocation = new Location {latitude = 1.01m, longitude = 1.02m};
+        var expectedLocation = new Location { latitude = 1.01m, longitude = 1.02m };
         var collection = database.CreateCollection<PersonWithIEnumerableLocations>();
         collection.WriteTestDocs([
             new()
             {
-                _id = ObjectId.GenerateNewId(),
-                name = "IEnumerableRound1",
-                locations = new List<Location> {expectedLocation}
+                _id = ObjectId.GenerateNewId(), name = "IEnumerableRound1", locations = new List<Location> { expectedLocation }
             },
             new()
             {
                 _id = ObjectId.GenerateNewId(),
                 name = "IEnumerableRound2",
-                locations = new List<Location> {new() {latitude = 1.03m, longitude = 1.04m}}
+                locations = new List<Location> { new() { latitude = 1.03m, longitude = 1.04m } }
             }
         ]);
 
@@ -571,7 +655,9 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
         var collection = database.CreateCollection<PersonWithIEnumerableLocations>();
         var entity = new PersonWithIEnumerableLocations
         {
-            _id = ObjectId.GenerateNewId(), name = "IEnumerableSerialize", locations = new List<Location> {Location1, Location2}
+            _id = ObjectId.GenerateNewId(),
+            name = "IEnumerableSerialize",
+            locations = new List<Location> { Location1, Location2 }
         };
 
         {
@@ -602,7 +688,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
         {
             _id = ObjectId.GenerateNewId(),
             name = "IEnumerableSerialize",
-            locations = EnumerableOnlyWrapper.Wrap(new List<Location> {Location1, Location2})
+            locations = EnumerableOnlyWrapper.Wrap(new List<Location> { Location1, Location2 })
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() => db.Entities.Add(entity));
@@ -624,7 +710,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
                 name = "Many updates",
                 locations =
                 [
-                    new Location {latitude = 1.1m, longitude = 2.2m}
+                    new Location { latitude = 1.1m, longitude = 2.2m }
                 ]
             };
 
@@ -632,7 +718,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
             db.SaveChanges();
             Assert.Single(original.locations, l => l.latitude == 1.1m);
 
-            original.locations.Add(new() {latitude = 3.3m, longitude = 4.4m});
+            original.locations.Add(new() { latitude = 3.3m, longitude = 4.4m });
             db.SaveChanges();
 
             Assert.Equal(2, original.locations.Count);
@@ -685,7 +771,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     public void OwnedEntity_with_two_owned_entities_creates()
     {
         var collection = database.CreateCollection<PersonWithTwoLocations>();
-        PersonWithTwoLocations expected = new() {name = "Elizabeth", first = Location2, second = Location1};
+        PersonWithTwoLocations expected = new() { name = "Elizabeth", first = Location2, second = Location1 };
 
         {
             using var db = SingleEntityDbContext.Create(collection);
@@ -769,7 +855,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     [Fact]
     public void OwnedEntity_can_have_element_name_set_for_same_types()
     {
-        var expected = new PersonWithTwoLocationsRemapped {name = "Elizabeth", locationOne = Location1, locationTwo = Location2};
+        var expected = new PersonWithTwoLocationsRemapped { name = "Elizabeth", locationOne = Location1, locationTwo = Location2 };
 
         database.CreateCollection<PersonWithTwoLocationsRemapped>().WriteTestDocs([expected]);
 
@@ -841,11 +927,11 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     public void OwnedEntity_collection_can_be_tested_for_not_null()
     {
         var collection = database.CreateCollection<A>();
-        var expected = new A {_id = "1", children = [new B {name = "child1"}, new B {name = "child2"}]};
+        var expected = new A { _id = "1", children = [new B { name = "child1" }, new B { name = "child2" }] };
 
         {
             using var db = SingleEntityDbContext.Create(collection);
-            db.Entities.AddRange(expected, new A {_id = "2", children = null!});
+            db.Entities.AddRange(expected, new A { _id = "2", children = null! });
             db.SaveChanges();
         }
 
@@ -860,11 +946,11 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     public void OwnedEntity_collection_field_can_be_tested_for_not_null()
     {
         var collection = database.CreateCollection<AField>();
-        var expected = new AField {_id = "1", children = [new B {name = "child1"}, new B {name = "child2"}]};
+        var expected = new AField { _id = "1", children = [new B { name = "child1" }, new B { name = "child2" }] };
 
         {
             using var db = SingleEntityDbContext.Create(collection, mb => mb.Entity<AField>().OwnsMany(f => f.children));
-            db.Entities.AddRange(expected, new AField {_id = "2", children = null!});
+            db.Entities.AddRange(expected, new AField { _id = "2", children = null! });
             db.SaveChanges();
         }
 
@@ -879,11 +965,11 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     public void OwnedEntity_collection_can_be_tested_for_null()
     {
         var collection = database.CreateCollection<A>();
-        var expected = new A {_id = "1"};
+        var expected = new A { _id = "1" };
 
         {
             using var db = SingleEntityDbContext.Create(collection);
-            db.Entities.AddRange(expected, new A {_id = "2", children = [new B {name = "child1"}, new B {name = "child2"}]});
+            db.Entities.AddRange(expected, new A { _id = "2", children = [new B { name = "child1" }, new B { name = "child2" }] });
             db.SaveChanges();
         }
 
@@ -898,11 +984,12 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     public void OwnedEntity_collection_field_can_be_tested_for_null()
     {
         var collection = database.CreateCollection<AField>();
-        var expected = new AField {_id = "1"};
+        var expected = new AField { _id = "1" };
 
         {
             using var db = SingleEntityDbContext.Create(collection, mb => mb.Entity<AField>().OwnsMany(f => f.children));
-            db.Entities.AddRange(expected, new AField {_id = "2", children = [new B {name = "child1"}, new B {name = "child2"}]});
+            db.Entities.AddRange(expected,
+                new AField { _id = "2", children = [new B { name = "child1" }, new B { name = "child2" }] });
             db.SaveChanges();
         }
 
@@ -962,7 +1049,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
         {
             docs.InsertOne(new BsonDocument("_id", id)
             {
-                ["children"] = new BsonArray {new BsonDocument("name", "child1"), new BsonDocument("name", "child2")}
+                ["children"] = new BsonArray { new BsonDocument("name", "child1"), new BsonDocument("name", "child2") }
             });
         }
 
@@ -1135,53 +1222,53 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
         public string Name { get; set; }
     }
 
-    private static readonly City City1 = new() {name = "San Diego"};
+    private static readonly City City1 = new() { name = "San Diego" };
 
     private static readonly LocationWithCity LocationWithCity1 =
-        new() {latitude = 32.715736m, longitude = -117.161087m, city = City1};
+        new() { latitude = 32.715736m, longitude = -117.161087m, city = City1 };
 
     private static readonly PersonWithCity[] PersonWithCity1 =
     [
-        new() {name = "Carmen", location = LocationWithCity1}
+        new() { name = "Carmen", location = LocationWithCity1 }
     ];
 
-    private static readonly Location Location1 = new() {latitude = 32.715736m, longitude = -117.161087m};
+    private static readonly Location Location1 = new() { latitude = 32.715736m, longitude = -117.161087m };
 
     private static readonly PersonWithLocation[] PersonWithLocation1 =
     [
-        new() {name = "Carmen", location = Location1}
+        new() { name = "Carmen", location = Location1 }
     ];
 
     private static readonly PersonWithLocation[] Person2WithLocation1 =
     [
-        new() {name = "Milton", location = Location1}
+        new() { name = "Milton", location = Location1 }
     ];
 
     private static readonly PersonWithLocation[] PersonWithMissingLocation1 =
     [
-        new() {name = "Elizabeth"}
+        new() { name = "Elizabeth" }
     ];
 
-    private static readonly Location Location2 = new() {latitude = 49.45981m, longitude = -2.53527m};
+    private static readonly Location Location2 = new() { latitude = 49.45981m, longitude = -2.53527m };
 
-    private static readonly Location Location3 = new() {latitude = 40.1m, longitude = -1.1m};
+    private static readonly Location Location3 = new() { latitude = 40.1m, longitude = -1.1m };
 
     private static readonly PersonWithMultipleLocations[] PersonWithLocations1 =
     [
-        new() {name = "Damien", locations = [Location2, Location1]},
-        new() {name = "Carmen", locations = [Location3]},
+        new() { name = "Damien", locations = [Location2, Location1] },
+        new() { name = "Carmen", locations = [Location3] }
     ];
 
     private static readonly PersonWithTwoLocations[] PersonWithTwoLocations1 =
     [
-        new() {name = "Henry", first = Location1, second = Location2}
+        new() { name = "Henry", first = Location1, second = Location2 }
     ];
 
     private static readonly FirstLevel FirstLevel1 = new()
     {
         _id = Guid.NewGuid(),
         day = DayOfWeek.Monday,
-        reference = new() {day = DayOfWeek.Friday, name = "This is the first level name"},
+        reference = new() { day = DayOfWeek.Friday, name = "This is the first level name" },
         children =
         [
             new SecondLevel
@@ -1193,7 +1280,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
                     {
                         name = "This is the third level name",
                         day = DayOfWeek.Wednesday,
-                        reference = new() {name = "This is the item reference name", day = DayOfWeek.Thursday}
+                        reference = new() { name = "This is the item reference name", day = DayOfWeek.Thursday }
                     }
                 ]
             }
