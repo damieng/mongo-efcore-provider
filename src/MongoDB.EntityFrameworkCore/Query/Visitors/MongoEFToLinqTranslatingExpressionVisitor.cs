@@ -277,14 +277,15 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
                     return _source;
                 }
 
-                if (_foundEntityQueryRootExpression.EntityType == entityQueryRootExpression.EntityType)
-                {
-                    return _source;
-                }
-
+                // Check inner sources first (handles self-joins where outer and inner are the same type)
                 if (_innerSources.TryGetValue(entityQueryRootExpression.EntityType, out var innerSource))
                 {
                     return innerSource;
+                }
+
+                if (_foundEntityQueryRootExpression.EntityType == entityQueryRootExpression.EntityType)
+                {
+                    return _source;
                 }
 
                 throw new InvalidOperationException($"Unsupported cross-DbSet query between '{_foundEntityQueryRootExpression.EntityType.Name}' " +
@@ -437,6 +438,14 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
     /// We need to strip the Select+LeftJoin and keep just the terminal operation on the base source.
     /// E.g., First(Select(LeftJoin(Orders, Customers, ...), selector)) -> First(Orders)
     /// </summary>
+    /// <summary>
+    /// For Include queries, strip the Join+Select chain from the expression and return
+    /// just the base source. The $lookup stages appended later handle the join.
+    /// Handles patterns like:
+    ///   Select(LeftJoin(Source, ...), selector) -> Source
+    ///   First(Select(LeftJoin(Source, ...), selector)) -> First(Source)
+    ///   Where(Select(LeftJoin(Source, ...), selector), pred) -> Source (pred stripped, $match from $lookup)
+    /// </summary>
     private static Expression? StripJoinForLookup(Expression expression)
     {
         if (expression is not MethodCallExpression outerCall)
@@ -444,32 +453,46 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
             return null;
         }
 
-        // Pattern: TerminalOp(Select(LeftJoin/Join(...), selector))
-        // -> TerminalOp(baseSource)
+        // If the outermost call IS the Select/Join chain itself, just return the base source
+        var baseSource = FindBaseSourceThroughJoin(outerCall);
+        if (baseSource != null && IsJoinRelatedMethod(outerCall))
+        {
+            return baseSource;
+        }
+
+        // Otherwise, the outermost call is a terminal op (First, etc.) wrapping the join chain
         var source = outerCall.Arguments[0];
-        var baseSource = FindBaseSourceThroughJoin(source);
+        baseSource = FindBaseSourceThroughJoin(source);
         if (baseSource == null)
         {
             return null;
         }
 
-        // Replace the source argument with the base source, skipping the Join+Select
+        // Replace the source argument with the base source
         var newArgs = outerCall.Arguments.ToArray();
         newArgs[0] = baseSource;
 
-        // Re-create the terminal operation (e.g. First) with the correct generic type
+        // Re-create the terminal operation with the correct generic type
         var method = outerCall.Method;
         if (method.IsGenericMethod)
         {
             var baseItemType = baseSource.Type.TryGetItemType();
             if (baseItemType != null)
             {
-                method = method.GetGenericMethodDefinition().MakeGenericMethod(baseItemType);
+                var genericDef = method.GetGenericMethodDefinition();
+                var genericParams = genericDef.GetGenericArguments();
+                if (genericParams.Length == 1)
+                {
+                    method = genericDef.MakeGenericMethod(baseItemType);
+                }
             }
         }
 
         return Expression.Call(null, method, newArgs);
     }
+
+    private static bool IsJoinRelatedMethod(MethodCallExpression call)
+        => call.Method.Name is "Select" or "LeftJoin" or "Join" or "GroupJoin" or "SelectMany" or "Where";
 
     private static Expression? FindBaseSourceThroughJoin(Expression expression)
     {

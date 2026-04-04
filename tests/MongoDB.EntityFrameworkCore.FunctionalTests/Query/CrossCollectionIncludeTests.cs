@@ -173,6 +173,28 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
         Assert.Contains(result, r => r.OrderDescription == "Order 1" && r.CustomerName == "Alice");
     }
 
+    [Fact]
+    public void Include_self_join_materializes_related_entity()
+    {
+        var staffName = TemporaryDatabaseFixtureBase.CreateCollectionName("Staff") + Guid.NewGuid().ToString("N")[..8];
+        var managerId = ObjectId.GenerateNewId();
+        var employeeId = ObjectId.GenerateNewId();
+
+        var staff = database.MongoDatabase.GetCollection<BsonDocument>(staffName);
+        staff.InsertMany([
+            new BsonDocument { { "_id", managerId }, { "emp_name", "Boss" } },
+            new BsonDocument { { "_id", employeeId }, { "emp_name", "Worker" }, { "mgr_id", managerId } }
+        ]);
+
+        using var db = new StaffDbContext(database, staffName);
+        var allStaff = db.Staff.Include(s => s.Manager).ToList();
+        var employee = allStaff.First(s => s.EmployeeName == "Worker");
+
+        Assert.NotNull(employee.Manager);
+        Assert.Equal("Boss", employee.Manager.EmployeeName);
+        Assert.Null(allStaff.First(s => s.EmployeeName == "Boss").Manager);
+    }
+
     // BSON uses: desc, cust_id for Orders; name for Customers
     // C# uses:   OrderDescription, CustomerId for Orders; FullName for Customers
     private (string ordersCollection, string customersCollection) SetupOrdersAndCustomers()
@@ -255,6 +277,52 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
                 b.ToCollection(_ordersCollection);
                 b.Property(o => o.OrderDescription).HasElementName("desc");
                 b.Property(o => o.CustomerId).HasElementName("cust_id");
+            });
+        }
+
+        sealed class IgnoreCacheKeyFactory : IModelCacheKeyFactory
+        {
+            private static int _count;
+            public object Create(DbContext context, bool designTime)
+                => Interlocked.Increment(ref _count);
+        }
+    }
+
+    class StaffMember
+    {
+        public ObjectId _id { get; set; }
+        public string EmployeeName { get; set; }
+        public ObjectId? ManagerId { get; set; }
+        public StaffMember Manager { get; set; }
+        public List<StaffMember> DirectReports { get; set; }
+    }
+
+    class StaffDbContext : DbContext
+    {
+        private readonly string _collectionName;
+
+        public DbSet<StaffMember> Staff { get; set; }
+
+        public StaffDbContext(TemporaryDatabaseFixture database, string collectionName)
+            : base(new DbContextOptionsBuilder<StaffDbContext>()
+                .UseMongoDB(database.Client, database.MongoDatabase.DatabaseNamespace.DatabaseName)
+                .ReplaceService<IModelCacheKeyFactory, IgnoreCacheKeyFactory>()
+                .Options)
+        {
+            _collectionName = collectionName;
+        }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<StaffMember>(b =>
+            {
+                b.ToCollection(_collectionName);
+                b.Property(s => s.EmployeeName).HasElementName("emp_name");
+                b.Property(s => s.ManagerId).HasElementName("mgr_id");
+                b.HasOne(s => s.Manager)
+                    .WithMany(s => s.DirectReports)
+                    .HasForeignKey(s => s.ManagerId);
             });
         }
 
