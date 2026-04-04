@@ -496,6 +496,12 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
             return FindBaseSourceThroughJoin(call.Arguments[0]);
         }
 
+        // Where(source, predicate) - filter that may sit between Select and Join
+        if (call.Method.Name == "Where" && call.Arguments.Count >= 2)
+        {
+            return FindBaseSourceThroughJoin(call.Arguments[0]);
+        }
+
         return null;
     }
 

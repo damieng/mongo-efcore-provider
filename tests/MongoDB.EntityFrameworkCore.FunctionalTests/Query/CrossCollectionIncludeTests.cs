@@ -21,6 +21,11 @@ using MongoDB.EntityFrameworkCore.Extensions;
 
 namespace MongoDB.EntityFrameworkCore.FunctionalTests.Query;
 
+/// <summary>
+/// Tests for cross-collection Join, Include, and navigation property access.
+/// IMPORTANT: C# property names intentionally differ from BSON element names
+/// to verify that EF element name mappings are respected through the $lookup pipeline.
+/// </summary>
 [XUnitCollection("QueryTests")]
 public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
     : IClassFixture<TemporaryDatabaseFixture>
@@ -34,16 +39,13 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
         var orderType = db.Model.FindEntityType(typeof(Order))!;
         var customerType = db.Model.FindEntityType(typeof(Customer))!;
 
-        // Customer should NOT be owned - it has its own DbSet
         Assert.Null(customerType.FindOwnership());
         Assert.Null(orderType.FindOwnership());
 
-        // Order should have a navigation to Customer
         var customerNav = orderType.FindNavigation(nameof(Order.Customer));
         Assert.NotNull(customerNav);
         Assert.Equal(typeof(Customer), customerNav.TargetEntityType.ClrType);
 
-        // Customer should have a collection navigation to Orders
         var ordersNav = customerType.FindNavigation(nameof(Customer.Orders));
         Assert.NotNull(ordersNav);
         Assert.True(ordersNav.IsCollection);
@@ -57,7 +59,7 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
 
         var order = db.Orders.First();
         Assert.NotNull(order);
-        Assert.NotNull(order.Description);
+        Assert.NotNull(order.OrderDescription);
     }
 
     [Fact]
@@ -69,7 +71,7 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
         var order = db.Orders.Include(o => o.Customer).First();
 
         Assert.NotNull(order.Customer);
-        Assert.Equal("Alice", order.Customer.Name);
+        Assert.Equal("Alice", order.Customer.FullName);
     }
 
     [Fact]
@@ -81,7 +83,7 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
         var order = db.Orders.AsNoTracking().Include(o => o.Customer).First();
 
         Assert.NotNull(order.Customer);
-        Assert.Equal("Alice", order.Customer.Name);
+        Assert.Equal("Alice", order.Customer.FullName);
     }
 
     [Fact]
@@ -90,7 +92,7 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
         var (ordersCollection, customersCollection) = SetupOrdersAndCustomers();
 
         using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
-        var customer = db.Customers.Include(c => c.Orders).First(c => c.Name == "Alice");
+        var customer = db.Customers.Include(c => c.Orders).First(c => c.FullName == "Alice");
 
         Assert.NotNull(customer.Orders);
         Assert.Equal(2, customer.Orders.Count);
@@ -101,18 +103,32 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
     {
         var (ordersCollection, customersCollection) = SetupOrdersAndCustomers();
 
-        // Insert an order without a customer reference
         var orphanOrder = new BsonDocument
         {
             { "_id", ObjectId.GenerateNewId() },
-            { "Description", "Orphan order" }
+            { "desc", "Orphan order" }
         };
         database.MongoDatabase.GetCollection<BsonDocument>(ordersCollection).InsertOne(orphanOrder);
 
         using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
-        var order = db.Orders.Include(o => o.Customer).First(o => o.Description == "Orphan order");
+        var order = db.Orders.Include(o => o.Customer).First(o => o.OrderDescription == "Orphan order");
 
         Assert.Null(order.Customer);
+    }
+
+    [Fact]
+    public void Where_on_navigation_property_with_entity_projection()
+    {
+        var (ordersCollection, customersCollection) = SetupOrdersAndCustomers();
+
+        using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
+        var orders = db.Orders
+            .Where(o => o.Customer.FullName == "Alice")
+            .Select(o => new { o._id, o.OrderDescription })
+            .ToList();
+
+        Assert.Equal(2, orders.Count);
+        Assert.All(orders, o => Assert.NotNull(o.OrderDescription));
     }
 
     [Fact]
@@ -122,12 +138,12 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
 
         using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
         var orders = db.Orders
-            .Where(o => o.Customer.Name == "Alice")
-            .Select(o => new { o.Description })
+            .Where(o => o.Customer.FullName == "Alice")
+            .Select(o => new { o.OrderDescription })
             .ToList();
 
         Assert.Equal(2, orders.Count);
-        Assert.All(orders, o => Assert.NotNull(o.Description));
+        Assert.All(orders, o => Assert.NotNull(o.OrderDescription));
     }
 
     [Fact]
@@ -136,7 +152,7 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
         var (ordersCollection, customersCollection) = SetupOrdersAndCustomers();
 
         using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
-        var customerNames = db.Orders.Select(o => o.Customer.Name).ToList();
+        var customerNames = db.Orders.Select(o => o.Customer.FullName).ToList();
 
         Assert.Equal(3, customerNames.Count);
         Assert.Contains("Alice", customerNames);
@@ -150,13 +166,15 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
 
         using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
         var result = db.Orders
-            .Select(o => new { o.Description, CustomerName = o.Customer.Name })
+            .Select(o => new { o.OrderDescription, CustomerName = o.Customer.FullName })
             .ToList();
 
         Assert.Equal(3, result.Count);
-        Assert.Contains(result, r => r.Description == "Order 1" && r.CustomerName == "Alice");
+        Assert.Contains(result, r => r.OrderDescription == "Order 1" && r.CustomerName == "Alice");
     }
 
+    // BSON uses: desc, cust_id for Orders; name for Customers
+    // C# uses:   OrderDescription, CustomerId for Orders; FullName for Customers
     private (string ordersCollection, string customersCollection) SetupOrdersAndCustomers()
     {
         var customersName = TemporaryDatabaseFixtureBase.CreateCollectionName("IncludeCustomers") + Guid.NewGuid().ToString("N")[..8];
@@ -167,15 +185,15 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
 
         var customers = database.MongoDatabase.GetCollection<BsonDocument>(customersName);
         customers.InsertMany([
-            new BsonDocument { { "_id", customerId1 }, { "Name", "Alice" } },
-            new BsonDocument { { "_id", customerId2 }, { "Name", "Bob" } }
+            new BsonDocument { { "_id", customerId1 }, { "name", "Alice" } },
+            new BsonDocument { { "_id", customerId2 }, { "name", "Bob" } }
         ]);
 
         var orders = database.MongoDatabase.GetCollection<BsonDocument>(ordersName);
         orders.InsertMany([
-            new BsonDocument { { "_id", ObjectId.GenerateNewId() }, { "Description", "Order 1" }, { "CustomerId", customerId1 } },
-            new BsonDocument { { "_id", ObjectId.GenerateNewId() }, { "Description", "Order 2" }, { "CustomerId", customerId1 } },
-            new BsonDocument { { "_id", ObjectId.GenerateNewId() }, { "Description", "Order 3" }, { "CustomerId", customerId2 } }
+            new BsonDocument { { "_id", ObjectId.GenerateNewId() }, { "desc", "Order 1" }, { "cust_id", customerId1 } },
+            new BsonDocument { { "_id", ObjectId.GenerateNewId() }, { "desc", "Order 2" }, { "cust_id", customerId1 } },
+            new BsonDocument { { "_id", ObjectId.GenerateNewId() }, { "desc", "Order 3" }, { "cust_id", customerId2 } }
         ]);
 
         return (ordersName, customersName);
@@ -184,7 +202,7 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
     class Order
     {
         public ObjectId _id { get; set; }
-        public string Description { get; set; }
+        public string OrderDescription { get; set; }
         public ObjectId? CustomerId { get; set; }
         public Customer Customer { get; set; }
     }
@@ -192,7 +210,7 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
     class Customer
     {
         public ObjectId _id { get; set; }
-        public string Name { get; set; }
+        public string FullName { get; set; }
         public List<Order> Orders { get; set; }
     }
 
@@ -226,6 +244,7 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
             modelBuilder.Entity<Customer>(b =>
             {
                 b.ToCollection(_customersCollection);
+                b.Property(c => c.FullName).HasElementName("name");
                 b.HasMany(c => c.Orders)
                     .WithOne(o => o.Customer)
                     .HasForeignKey(o => o.CustomerId);
@@ -234,6 +253,8 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
             modelBuilder.Entity<Order>(b =>
             {
                 b.ToCollection(_ordersCollection);
+                b.Property(o => o.OrderDescription).HasElementName("desc");
+                b.Property(o => o.CustomerId).HasElementName("cust_id");
             });
         }
 

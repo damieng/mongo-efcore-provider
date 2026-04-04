@@ -57,10 +57,10 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
         if (result == QueryCompilationContext.NotTranslatedExpression)
         {
             var originalExpression = ((MongoQueryCompilationContext)QueryCompilationContext).OriginalExpression;
-            var details = TranslationErrorDetails
-                          ?? $"Expression type: {expression?.GetType().Name}, NodeType: {expression?.NodeType}, Value: {expression}";
             throw new InvalidOperationException(
-                CoreStrings.TranslationFailedWithDetails(originalExpression?.Print(), details));
+                TranslationErrorDetails is null
+                    ? CoreStrings.TranslationFailed(originalExpression?.Print())
+                    : CoreStrings.TranslationFailedWithDetails(originalExpression?.Print(), TranslationErrorDetails));
         }
 
         return result;
@@ -400,8 +400,6 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
         }
 
         // Create a new projection for the inner entity that reads from the $lookup field.
-        // This is only needed for Include (which has a navigation from outer to inner).
-        // For explicit Join with anonymous projections, the driver handles shaping.
         var innerEntityType = innerEntityProjection.EntityType;
         var navigation = outerQueryExpression.CollectionExpression.EntityType
             .GetNavigations()
