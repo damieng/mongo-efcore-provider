@@ -141,8 +141,18 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
                     var projectionBindingExpression =
                         (ProjectionBindingExpression)structuralTypeShaperExpression.ValueBufferExpression;
 
-                    var entityProjection = (EntityProjectionExpression)_queryExpression.GetMappedProjection(
-                        projectionBindingExpression.ProjectionMember);
+                    EntityProjectionExpression entityProjection;
+                    if (projectionBindingExpression.Index is int existingIndex
+                        && projectionBindingExpression.QueryExpression == _queryExpression)
+                    {
+                        // Already bound by index to our query expression (e.g., from join rebinding)
+                        entityProjection = (EntityProjectionExpression)_queryExpression.Projection[existingIndex].Expression;
+                    }
+                    else
+                    {
+                        entityProjection = (EntityProjectionExpression)_queryExpression.GetMappedProjection(
+                            projectionBindingExpression.ProjectionMember);
+                    }
 
                     return structuralTypeShaperExpression.Update(
                         new ProjectionBindingExpression(
@@ -157,12 +167,17 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
 
             case IncludeExpression includeExpression:
                 {
-                    if (!(includeExpression.Navigation is INavigation includableNavigation && includableNavigation.IsEmbedded()))
+                    if (includeExpression.Navigation is not INavigation includableNavigation)
                     {
                         throw new InvalidOperationException(
                             $"Including navigation '{
                                 nameof(includeExpression.Navigation)
-                            }' is not supported as the navigation is not embedded in same resource.");
+                            }' is not supported.");
+                    }
+
+                    if (!includableNavigation.IsEmbedded())
+                    {
+                        _queryExpression.AddLookup(new LookupExpression(includableNavigation));
                     }
 
                     _includedNavigations.Push(includableNavigation);
@@ -232,7 +247,8 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
             if (navigation == null)
             {
                 navigationProjection = innerEntityProjection.BindMember(memberName, visitedSource.Type, out var propertyBase);
-                if (propertyBase is not INavigation projectedNavigation || !projectedNavigation.IsEmbedded())
+                if (propertyBase is not INavigation projectedNavigation
+                    || (!projectedNavigation.IsEmbedded() && !_includedNavigations.Contains(projectedNavigation)))
                 {
                     return null;
                 }

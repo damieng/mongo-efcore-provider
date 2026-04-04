@@ -107,18 +107,23 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
                 case nameof(Queryable.Max) when methodDefinition == QueryableMethods.MaxWithoutSelector
                                                 || methodDefinition == QueryableMethods.MaxWithSelector:
 
-                // Operations not supported, but we want to bubble through for better error messages
+                // Join operations - delegate to base class which calls our Translate* overrides
+                case nameof(Queryable.Join) when methodDefinition == QueryableMethods.Join:
+                case nameof(Queryable.GroupJoin) when methodDefinition == QueryableMethods.GroupJoin:
 #if !EF8 && !EF9
                 case nameof(Queryable.LeftJoin) when methodDefinition == QueryableMethods.LeftJoin:
+#endif
+                case nameof(Queryable.DefaultIfEmpty) when methodDefinition == QueryableMethods.DefaultIfEmptyWithArgument
+                                                           || methodDefinition == QueryableMethods.DefaultIfEmptyWithoutArgument:
+
+                // Operations not supported, but we want to bubble through for better error messages
+#if !EF8 && !EF9
                 case nameof(Queryable.RightJoin) when methodDefinition == QueryableMethods.RightJoin:
 #endif
                 case nameof(Queryable.GroupBy) when methodDefinition == QueryableMethods.GroupByWithKeySelector
                                                     || methodDefinition == QueryableMethods.GroupByWithKeyElementSelector:
                 case nameof(Queryable.Contains) when methodDefinition == QueryableMethods.Contains:
                 case nameof(Queryable.Except) when methodDefinition == QueryableMethods.Except:
-                case nameof(Queryable.Join) when methodDefinition == QueryableMethods.Join:
-                case nameof(Queryable.DefaultIfEmpty) when methodDefinition == QueryableMethods.DefaultIfEmptyWithArgument
-                                                           || methodDefinition == QueryableMethods.DefaultIfEmptyWithoutArgument:
                 case nameof(Queryable.Intersect) when methodDefinition == QueryableMethods.Intersect:
                 case nameof(Queryable.SelectMany) when methodDefinition == QueryableMethods.SelectManyWithCollectionSelector:
                     {
@@ -151,15 +156,7 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
             return source;
         }
 
-        // Detect join patterns (LeftJoin, GroupJoin, etc.) which use TransparentIdentifier
-        var parameterType = selector.Parameters[0].Type;
-        if (parameterType.IsGenericType &&
-            parameterType.Name.StartsWith("TransparentIdentifier", StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                "Join operations (Join, LeftJoin, GroupJoin) are not supported by the MongoDB EF Core Provider. " +
-                "Consider using navigation properties or restructuring your query.");
-        }
+        // TransparentIdentifier types are used by Join/LeftJoin/GroupJoin - allow them through
 
         var mongoQueryExpression = (MongoQueryExpression)source.QueryExpression;
         var newSelectorBody =
@@ -336,14 +333,14 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
 
     protected override ShapedQueryExpression? TranslateGroupJoin(ShapedQueryExpression outer, ShapedQueryExpression inner,
         LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
-        => null;
+        => TranslateJoinCore(outer, inner, resultSelector);
 
     protected override ShapedQueryExpression? TranslateIntersect(ShapedQueryExpression source1, ShapedQueryExpression source2)
         => null;
 
     protected override ShapedQueryExpression? TranslateLeftJoin(ShapedQueryExpression outer, ShapedQueryExpression inner,
         LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
-        => null;
+        => TranslateJoinCore(outer, inner, resultSelector);
 
 #if !EF8 && !EF9
     protected override ShapedQueryExpression? TranslateRightJoin(ShapedQueryExpression outer, ShapedQueryExpression inner,
@@ -353,7 +350,82 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
 
     protected override ShapedQueryExpression? TranslateJoin(ShapedQueryExpression outer, ShapedQueryExpression inner,
         LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
-        => null;
+        => TranslateJoinCore(outer, inner, resultSelector);
+
+    private static ShapedQueryExpression? TranslateJoinCore(
+        ShapedQueryExpression outer, ShapedQueryExpression inner, LambdaExpression resultSelector)
+    {
+        var outerQueryExpression = (MongoQueryExpression)outer.QueryExpression;
+        var innerQueryExpression = (MongoQueryExpression)inner.QueryExpression;
+
+        outerQueryExpression.AddInnerCollection(innerQueryExpression.CollectionExpression.EntityType);
+
+        // Rebind the inner entity's projection to the outer MongoQueryExpression.
+        // The inner shaper has a StructuralTypeShaperExpression bound to the inner MongoQueryExpression.
+        // We need to migrate that projection to the outer query expression so the entity path
+        // shaper can read inner entity properties from the $lookup result field.
+        var reboundInnerShaper = RebindInnerShaperToOuterQuery(
+            inner.ShaperExpression, innerQueryExpression, outerQueryExpression);
+
+        var newResultSelector = ReplacingExpressionVisitor.Replace(
+            resultSelector.Parameters[0], outer.ShaperExpression,
+            ReplacingExpressionVisitor.Replace(
+                resultSelector.Parameters[1], reboundInnerShaper,
+                resultSelector.Body));
+
+        return outer.UpdateShaperExpression(newResultSelector);
+    }
+
+    private static Expression RebindInnerShaperToOuterQuery(
+        Expression innerShaper,
+        MongoQueryExpression innerQueryExpression,
+        MongoQueryExpression outerQueryExpression)
+    {
+        if (innerShaper is not StructuralTypeShaperExpression structuralShaper
+            || structuralShaper.ValueBufferExpression is not ProjectionBindingExpression innerBinding)
+        {
+            return innerShaper;
+        }
+
+        // Get the inner entity's projection from the inner query expression
+        EntityProjectionExpression? innerEntityProjection = null;
+        if (innerBinding.ProjectionMember is { } member)
+        {
+            innerEntityProjection = innerQueryExpression.GetMappedProjection(member) as EntityProjectionExpression;
+        }
+
+        if (innerEntityProjection == null)
+        {
+            return innerShaper;
+        }
+
+        // Create a new projection for the inner entity that reads from the $lookup field.
+        // This is only needed for Include (which has a navigation from outer to inner).
+        // For explicit Join with anonymous projections, the driver handles shaping.
+        var innerEntityType = innerEntityProjection.EntityType;
+        var navigation = outerQueryExpression.CollectionExpression.EntityType
+            .GetNavigations()
+            .FirstOrDefault(n => n.TargetEntityType == innerEntityType);
+
+        if (navigation == null)
+        {
+            // Explicit Join without navigation - don't rebind, driver handles projection
+            return innerShaper;
+        }
+
+        Expression parentAccess = new RootReferenceExpression(outerQueryExpression.CollectionExpression.EntityType);
+        var lookupAlias = $"_lookup_{navigation.Name}";
+
+        var lookupAccessExpression = new ObjectAccessExpression(
+            navigation, parentAccess, false, lookupAlias);
+        var newInnerProjection = new EntityProjectionExpression(innerEntityType, lookupAccessExpression);
+
+        // Register on the outer query expression and create a new binding
+        var projectionIndex = outerQueryExpression.AddToProjection(newInnerProjection);
+
+        return structuralShaper.Update(
+            new ProjectionBindingExpression(outerQueryExpression, projectionIndex, typeof(ValueBuffer)));
+    }
 
     protected override ShapedQueryExpression? TranslateLastOrDefault(ShapedQueryExpression source, LambdaExpression? predicate,
         Type returnType, bool returnDefault)

@@ -132,13 +132,10 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
 
             case IncludeExpression includeExpression:
                 {
-                    if (!(includeExpression.Navigation is INavigation navigation)
-                        || navigation.IsOnDependent
-                        || navigation.ForeignKey.DeclaringEntityType.IsDocumentRoot())
+                    if (includeExpression.Navigation is not INavigation navigation)
                     {
                         throw new InvalidOperationException(
-                            $"Including navigation '{includeExpression.Navigation
-                            }' is not supported as the navigation is not embedded in same resource.");
+                            $"Including navigation '{includeExpression.Navigation}' is not supported.");
                     }
 
                     var isFirstInclude = _pendingIncludes.Count == 0;
@@ -310,12 +307,10 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
             var lambda = (LambdaExpression)methodCallExpression.Arguments[1];
             if (lambda.Body is IncludeExpression includeExpression)
             {
-                if (!(includeExpression.Navigation is INavigation navigation)
-                    || navigation.IsOnDependent
-                    || navigation.ForeignKey.DeclaringEntityType.IsDocumentRoot())
+                if (includeExpression.Navigation is not INavigation navigation)
                 {
-                    throw new InvalidOperationException($"Including navigation '{nameof(navigation)
-                    }' is not supported as the navigation is not embedded in same resource.");
+                    throw new InvalidOperationException(
+                        $"Including navigation '{includeExpression.Navigation}' is not supported.");
                 }
 
                 _pendingIncludes.Add(includeExpression);
