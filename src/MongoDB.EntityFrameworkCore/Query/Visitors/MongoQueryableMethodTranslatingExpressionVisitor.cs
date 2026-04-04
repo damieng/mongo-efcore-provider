@@ -57,10 +57,10 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
         if (result == QueryCompilationContext.NotTranslatedExpression)
         {
             var originalExpression = ((MongoQueryCompilationContext)QueryCompilationContext).OriginalExpression;
+            var details = TranslationErrorDetails
+                          ?? $"Expression type: {expression?.GetType().Name}, NodeType: {expression?.NodeType}, Value: {expression}";
             throw new InvalidOperationException(
-                TranslationErrorDetails is null
-                    ? CoreStrings.TranslationFailed(originalExpression?.Print())
-                    : CoreStrings.TranslationFailedWithDetails(originalExpression?.Print(), TranslationErrorDetails));
+                CoreStrings.TranslationFailedWithDetails(originalExpression?.Print(), details));
         }
 
         return result;

@@ -76,46 +76,31 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
             return ApplyAsSerializer(source, BsonDocumentSerializer.Instance, typeof(BsonDocument));
         }
 
-        // For queries with pending $lookup stages (Include), strip the Join+Select
+        // For queries with pending $lookup stages (Include), strip any Join+Select
         // that EF generated and use $lookup stages appended to the base source instead.
         // This keeps entity fields at the root of the BsonDocument.
+        var expressionToTranslate = efQueryExpression;
         if (_pendingLookups.Count > 0)
         {
-            var strippedExpression = StripJoinForLookup(efQueryExpression);
-            if (strippedExpression != null)
-            {
-                var query = (MethodCallExpression)Visit(strippedExpression)!;
-
-                if (resultCardinality == ResultCardinality.Enumerable)
-                {
-                    query = (MethodCallExpression)AppendLookupStages(query);
-                    return ApplyAsSerializer(query, BsonDocumentSerializer.Instance, typeof(BsonDocument));
-                }
-
-                // For single cardinality: append lookup to the source, then wrap with terminal op
-                var sourceWithLookups = AppendLookupStages(query.Arguments[0]);
-                var documentQueryableSource = ApplyAsSerializer(sourceWithLookups, BsonDocumentSerializer.Instance, typeof(BsonDocument));
-                return Expression.Call(
-                    null,
-                    query.Method.GetGenericMethodDefinition().MakeGenericMethod(typeof(BsonDocument)),
-                    documentQueryableSource);
-            }
+            expressionToTranslate = StripJoinForLookup(efQueryExpression) ?? efQueryExpression;
         }
 
+        var query = (MethodCallExpression)Visit(expressionToTranslate)!;
+
+        if (resultCardinality == ResultCardinality.Enumerable)
         {
-            var query = (MethodCallExpression)Visit(efQueryExpression)!;
-
-            if (resultCardinality == ResultCardinality.Enumerable)
-            {
-                return ApplyAsSerializer(query, BsonDocumentSerializer.Instance, typeof(BsonDocument));
-            }
-
-            var documentQueryableSource = ApplyAsSerializer(query.Arguments[0], BsonDocumentSerializer.Instance, typeof(BsonDocument));
-            return Expression.Call(
-                null,
-                query.Method.GetGenericMethodDefinition().MakeGenericMethod(typeof(BsonDocument)),
-                documentQueryableSource);
+            query = (MethodCallExpression)AppendLookupStages(query);
+            return ApplyAsSerializer(query, BsonDocumentSerializer.Instance, typeof(BsonDocument));
         }
+
+        // For single cardinality: append lookup to the source, then wrap with terminal op
+        var sourceWithLookups = AppendLookupStages(query.Arguments[0]);
+        var documentQueryableSource = ApplyAsSerializer(sourceWithLookups, BsonDocumentSerializer.Instance, typeof(BsonDocument));
+
+        return Expression.Call(
+            null,
+            query.Method.GetGenericMethodDefinition().MakeGenericMethod(typeof(BsonDocument)),
+            documentQueryableSource);
     }
 
     private static MethodCallExpression ApplyAsSerializer(
