@@ -76,6 +76,24 @@ internal sealed class MongoShapedQueryCompilingExpressionVisitor : ShapedQueryCo
             return VisitProjectedQuery(shapedQueryExpression, rootEntityType, mongoQueryExpression);
         }
 
+        // For join queries without pending lookups (e.g., Where/Select on navigation properties),
+        // let the driver handle the full Join+Select via $lookup using the push-down path.
+        // The driver's LINQ3 provider translates the Join into $lookup and the Select extracts
+        // the entity, so the result is properly serialized.
+        if (mongoQueryExpression.IsJoinQuery && mongoQueryExpression.PendingLookups.Count == 0)
+        {
+            return Expression.Call(null,
+                ExecuteProjectedQueryMethodInfo.MakeGenericMethod(rootEntityType.ClrType,
+                    shapedQueryExpression.ShaperExpression.Type),
+                QueryCompilationContext.QueryContextParameter,
+                Expression.Constant(rootEntityType),
+                Expression.Constant(_bsonSerializerFactory),
+                Expression.Constant(mongoQueryExpression),
+                Expression.Constant(_contextType),
+                Expression.Constant(_threadSafetyChecksEnabled),
+                Expression.Constant(shapedQueryExpression.ResultCardinality));
+        }
+
         // Entity path: full BsonDocuments shaped into tracked/untracked entity instances
         return CompileShapedQuery(shapedQueryExpression, mongoQueryExpression, rootEntityType,
             (bsonDoc, track) => new MongoProjectionBindingRemovingExpressionVisitor(

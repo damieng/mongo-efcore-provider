@@ -115,6 +115,48 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
         Assert.Null(order.Customer);
     }
 
+    [Fact]
+    public void Where_on_navigation_property_with_projection()
+    {
+        var (ordersCollection, customersCollection) = SetupOrdersAndCustomers();
+
+        using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
+        var orders = db.Orders
+            .Where(o => o.Customer.Name == "Alice")
+            .Select(o => new { o.Description })
+            .ToList();
+
+        Assert.Equal(2, orders.Count);
+        Assert.All(orders, o => Assert.NotNull(o.Description));
+    }
+
+    [Fact]
+    public void Select_navigation_property_projects_correctly()
+    {
+        var (ordersCollection, customersCollection) = SetupOrdersAndCustomers();
+
+        using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
+        var customerNames = db.Orders.Select(o => o.Customer.Name).ToList();
+
+        Assert.Equal(3, customerNames.Count);
+        Assert.Contains("Alice", customerNames);
+        Assert.Contains("Bob", customerNames);
+    }
+
+    [Fact]
+    public void Select_anonymous_with_navigation_property()
+    {
+        var (ordersCollection, customersCollection) = SetupOrdersAndCustomers();
+
+        using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
+        var result = db.Orders
+            .Select(o => new { o.Description, CustomerName = o.Customer.Name })
+            .ToList();
+
+        Assert.Equal(3, result.Count);
+        Assert.Contains(result, r => r.Description == "Order 1" && r.CustomerName == "Alice");
+    }
+
     private (string ordersCollection, string customersCollection) SetupOrdersAndCustomers()
     {
         var customersName = TemporaryDatabaseFixtureBase.CreateCollectionName("IncludeCustomers") + Guid.NewGuid().ToString("N")[..8];
