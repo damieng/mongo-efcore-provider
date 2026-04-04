@@ -127,13 +127,24 @@ internal sealed class MongoShapedQueryCompilingExpressionVisitor : ShapedQueryCo
         var trackQueryResults = QueryCompilationContext.QueryTrackingBehavior == QueryTrackingBehavior.TrackAll;
 
         var shaperBody = shapedQueryExpression.ShaperExpression;
-        shaperBody = new BsonDocumentInjectingExpressionVisitor().Visit(shaperBody);
+        var bsonInjector = new BsonDocumentInjectingExpressionVisitor();
+        shaperBody = bsonInjector.Visit(shaperBody);
 #if EF8 || EF9
         shaperBody = InjectEntityMaterializers(shaperBody);
 #else
         shaperBody = InjectStructuralTypeMaterializers(shaperBody);
 #endif
         shaperBody = createBindingRemover(bsonDocParameter, trackQueryResults).Visit(shaperBody);
+
+        // Lift all BsonDocument/BsonArray variables to the lambda level so they are
+        // accessible across entity boundaries in join projections.
+        if (bsonInjector.AllVariables.Count > 0)
+        {
+            shaperBody = Expression.Block(
+                shaperBody.Type,
+                bsonInjector.AllVariables,
+                shaperBody);
+        }
 
         var shaperLambda = Expression.Lambda(
             shaperBody,
