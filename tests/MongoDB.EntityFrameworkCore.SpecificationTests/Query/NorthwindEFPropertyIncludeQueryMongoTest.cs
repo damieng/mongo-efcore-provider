@@ -43,54 +43,47 @@ public class NorthwindEFPropertyIncludeQueryMongoTest : NorthwindEFPropertyInclu
 
     public override async Task Include_collection_with_last_no_orderby(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_with_last_no_orderby(async))).Message);
-
-        AssertMql();
+        await base.Include_collection_with_last_no_orderby(async);
+        AssertMql(
+            """
+Customers.{ "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }, { "$group" : { "_id" : null, "_last" : { "$last" : "$$ROOT" } } }, { "$replaceRoot" : { "newRoot" : "$_last" } }
+""");
     }
 
     public override async Task Include_collection_with_filter_reordered(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_with_filter_reordered(async))).Message);
-
+        await base.Include_collection_with_filter_reordered(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_collection_order_by_non_key_with_first_or_default(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_order_by_non_key_with_first_or_default(async))).Message);
-
+        await base.Include_collection_order_by_non_key_with_first_or_default(async);
         AssertMql(
-);
+            """
+Customers.{ "$sort" : { "CompanyName" : -1 } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }, { "$limit" : 1 }
+""");
     }
 
     public override async Task Include_with_cycle_does_not_throw_when_AsTracking_NoTrackingWithIdentityResolution(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_with_cycle_does_not_throw_when_AsTracking_NoTrackingWithIdentityResolution(async));
-
+        await base.Include_with_cycle_does_not_throw_when_AsTracking_NoTrackingWithIdentityResolution(async);
         AssertMql(
-);
+            """
+Orders.{ "$match" : { "_id" : { "$lt" : 10800 } } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_collection_with_filter(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_with_filter(async))).Message);
-
+        await base.Include_collection_with_filter(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_references_then_include_multi_level(bool async)
@@ -126,12 +119,11 @@ public class NorthwindEFPropertyIncludeQueryMongoTest : NorthwindEFPropertyInclu
 
     public override async Task Include_collection_skip_take_no_order_by(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_skip_take_no_order_by(async))).Message);
-AssertMql(
-);
+        await base.Include_collection_skip_take_no_order_by(async);
+        AssertMql(
+            """
+Customers.{ "$skip" : 10 }, { "$limit" : 5 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_collection_with_cross_join_clause_with_filter(bool async)
@@ -163,11 +155,11 @@ AssertMql(
 
     public override async Task Include_references_then_include_collection(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_references_then_include_collection(async));
-
+        await base.Include_references_then_include_collection(async);
         AssertMql(
-);
+            """
+Orders.{ "$match" : { "CustomerID" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_collection_on_additional_from_clause_with_filter(bool async)
@@ -190,13 +182,11 @@ AssertMql(
 
     public override async Task Include_collection_order_by_non_key_with_take(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_order_by_non_key_with_take(async))).Message);
-
+        await base.Include_collection_order_by_non_key_with_take(async);
         AssertMql(
-);
+            """
+Customers.{ "$sort" : { "ContactTitle" : 1 } }, { "$limit" : 10 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_collection_then_include_collection_predicate(bool async)
@@ -212,25 +202,23 @@ AssertMql(
 
     public override async Task Include_collection_take_no_order_by(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_take_no_order_by(async))).Message);
-
+        await base.Include_collection_take_no_order_by(async);
         AssertMql(
-);
+            """
+Customers.{ "$limit" : 10 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_collection_principal_already_tracked(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_principal_already_tracked(async))).Message);
-
+        await base.Include_collection_principal_already_tracked(async);
         AssertMql(
             """
 Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$limit" : 2 }
+""",
+            //
+            """
+Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }, { "$limit" : 2 }
 """);
     }
 
@@ -265,13 +253,11 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$limit" : 2 }
 
     public override async Task Include_collection_single_or_default_no_result(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_single_or_default_no_result(async))).Message);
-
+        await base.Include_collection_single_or_default_no_result(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : "ALFKI ?" } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }, { "$limit" : 2 }
+""");
     }
 
     public override async Task Include_collection_with_cross_apply_with_filter(bool async)
@@ -303,13 +289,11 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$limit" : 2 }
 
     public override async Task Include_collection(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection(async))).Message);
-
+        await base.Include_collection(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_collection_then_include_collection_then_include_reference(bool async)
@@ -352,33 +336,33 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$limit" : 2 }
 
     public override async Task Include_collection_OrderBy_list_does_not_contains(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_OrderBy_list_does_not_contains(async))).Message);
-
+        await base.Include_collection_OrderBy_list_does_not_contains(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^A", "options" : "s" } } } }, { "$project" : { "_id" : 0, "_document" : "$$ROOT", "_key1" : { "$not" : { "$in" : ["$_id", ["ALFKI"]] } } } }, { "$sort" : { "_key1" : 1 } }, { "$replaceRoot" : { "newRoot" : "$_document" } }, { "$skip" : 1 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_reference_dependent_already_tracked(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_reference_dependent_already_tracked(async));
-
+        await base.Include_reference_dependent_already_tracked(async);
         AssertMql(
             """
 Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$limit" : 2 }
+""",
+            //
+            """
+Orders.{ "$match" : { "CustomerID" : "ALFKI" } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }
 """);
     }
 
     public override async Task Include_reference_with_filter(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_reference_with_filter(async));
-
+        await base.Include_reference_with_filter(async);
         AssertMql(
-);
+            """
+Orders.{ "$match" : { "CustomerID" : "ALFKI" } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }
+""");
     }
 
     public override async Task Include_duplicate_reference(bool async)
@@ -392,22 +376,20 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$limit" : 2 }
 
     public override async Task Include_with_complex_projection(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_with_complex_projection(async));
-
+        await base.Include_with_complex_projection(async);
         AssertMql(
-);
+            """
+Orders.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Customers", "localField" : "_outer.CustomerID", "foreignField" : "_id", "as" : "_inner" } }, { "$project" : { "Outer" : "$_outer", "Group" : "$_inner", "_id" : 0 } }, { "$project" : { "_v" : { "$map" : { "input" : { "$cond" : { "if" : { "$eq" : [{ "$size" : "$Group" }, 0] }, "then" : [null], "else" : "$Group" } }, "as" : "i", "in" : { "Outer" : "$Outer", "Inner" : "$$i" } } }, "_id" : 0 } }, { "$unwind" : "$_v" }, { "$project" : { "CustomerId" : { "_id" : "$_v.Inner._id" }, "_id" : 0 } }
+""");
     }
 
     public override async Task Include_collection_order_by_non_key_with_skip(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_order_by_non_key_with_skip(async))).Message);
-
+        await base.Include_collection_order_by_non_key_with_skip(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$sort" : { "ContactTitle" : 1 } }, { "$skip" : 2 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_collection_on_join_clause_with_order_by_and_filter(bool async)
@@ -450,13 +432,11 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$limit" : 2 }
 
     public override async Task Include_collection_order_by_key(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_order_by_key(async))).Message);
-
+        await base.Include_collection_order_by_key(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$sort" : { "_id" : 1 } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_collection_with_outer_apply_with_filter(bool async)
@@ -479,14 +459,14 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$limit" : 2 }
 
     public override async Task Include_collection_dependent_already_tracked(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_dependent_already_tracked(async))).Message);
-
+        await base.Include_collection_dependent_already_tracked(async);
         AssertMql(
             """
 Orders.{ "$match" : { "CustomerID" : "ALFKI" } }
+""",
+            //
+            """
+Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }, { "$limit" : 2 }
 """);
     }
 
@@ -521,13 +501,11 @@ Orders.{ "$match" : { "CustomerID" : "ALFKI" } }
 
     public override async Task Include_collection_OrderBy_empty_list_contains(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_OrderBy_empty_list_contains(async))).Message);
-
+        await base.Include_collection_OrderBy_empty_list_contains(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^A", "options" : "s" } } } }, { "$project" : { "_id" : 0, "_document" : "$$ROOT", "_key1" : { "$in" : ["$_id", []] } } }, { "$sort" : { "_key1" : 1 } }, { "$replaceRoot" : { "newRoot" : "$_document" } }, { "$skip" : 1 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_references_and_collection_multi_level(bool async)
@@ -599,20 +577,20 @@ Orders.{ "$match" : { "CustomerID" : "ALFKI" } }
 
     public override async Task Include_reference_when_entity_in_projection(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_reference_when_entity_in_projection(async));
-
+        await base.Include_reference_when_entity_in_projection(async);
         AssertMql(
-);
+            """
+Orders.{ "$match" : { "CustomerID" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }
+""");
     }
 
     public override async Task Include_reference_single_or_default_when_no_result(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_reference_single_or_default_when_no_result(async));
-
+        await base.Include_reference_single_or_default_when_no_result(async);
         AssertMql(
-);
+            """
+Orders.{ "$match" : { "_id" : -1 } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }, { "$limit" : 2 }
+""");
     }
 
     public override async Task Include_reference_alias_generation(bool async)
@@ -626,11 +604,11 @@ Orders.{ "$match" : { "CustomerID" : "ALFKI" } }
 
     public override async Task Include_with_cycle_does_not_throw_when_AsNoTrackingWithIdentityResolution(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_with_cycle_does_not_throw_when_AsNoTrackingWithIdentityResolution(async));
-
+        await base.Include_with_cycle_does_not_throw_when_AsNoTrackingWithIdentityResolution(async);
         AssertMql(
-);
+            """
+Orders.{ "$match" : { "_id" : { "$lt" : 10800 } } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_references_then_include_collection_multi_level(bool async)
@@ -708,13 +686,11 @@ Customers.{ "$project" : { "_v" : "$_id", "_id" : 0 } }
 
     public override async Task Include_collection_OrderBy_list_contains(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_OrderBy_list_contains(async))).Message);
-
+        await base.Include_collection_OrderBy_list_contains(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^A", "options" : "s" } } } }, { "$project" : { "_id" : 0, "_document" : "$$ROOT", "_key1" : { "$in" : ["$_id", ["ALFKI"]] } } }, { "$sort" : { "_key1" : 1 } }, { "$replaceRoot" : { "newRoot" : "$_document" } }, { "$skip" : 1 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Multi_level_includes_are_applied_with_skip(bool async)
@@ -737,22 +713,20 @@ Customers.{ "$project" : { "_v" : "$_id", "_id" : 0 } }
 
     public override async Task Include_reference_distinct_is_server_evaluated(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_reference_distinct_is_server_evaluated(async));
-
+        await base.Include_reference_distinct_is_server_evaluated(async);
         AssertMql(
-);
+            """
+Orders.{ "$match" : { "_id" : { "$lt" : 10250 } } }, { "$group" : { "_id" : "$$ROOT" } }, { "$replaceRoot" : { "newRoot" : "$_id" } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }
+""");
     }
 
     public override async Task Include_collection_distinct_is_server_evaluated(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_distinct_is_server_evaluated(async))).Message);
-
+        await base.Include_collection_distinct_is_server_evaluated(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^A", "options" : "s" } } } }, { "$group" : { "_id" : "$$ROOT" } }, { "$replaceRoot" : { "newRoot" : "$_id" } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_reference_when_projection(bool async)
@@ -776,11 +750,11 @@ Orders.{ "$project" : { "_v" : "$CustomerID", "_id" : 0 } }
 
     public override async Task Include_reference(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_reference(async));
-
+        await base.Include_reference(async);
         AssertMql(
-);
+            """
+Orders.{ "$match" : { "CustomerID" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }
+""");
     }
 
     public override async Task Include_multiple_references_and_collection_multi_level_reverse(bool async)
@@ -794,24 +768,24 @@ Orders.{ "$project" : { "_v" : "$CustomerID", "_id" : 0 } }
 
     public override async Task Include_closes_reader(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_closes_reader(async))).Message);
-
+        await base.Include_closes_reader(async);
         AssertMql(
-);
+            """
+Customers.{ "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }, { "$limit" : 1 }
+""",
+            //
+            """
+Products.
+""");
     }
 
     public override async Task Include_with_skip(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_with_skip(async))).Message);
-
+        await base.Include_with_skip(async);
         AssertMql(
-);
+            """
+Customers.{ "$sort" : { "ContactName" : 1 } }, { "$skip" : 80 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_collection_Join_GroupBy_Select(bool async)
@@ -834,12 +808,11 @@ Orders.{ "$project" : { "_v" : "$CustomerID", "_id" : 0 } }
 
     public override async Task Include_collection_orderby_take(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_orderby_take(async))).Message);
-AssertMql(
-);
+        await base.Include_collection_orderby_take(async);
+        AssertMql(
+            """
+Customers.{ "$sort" : { "_id" : 1 } }, { "$limit" : 5 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Join_Include_collection_GroupBy_Select(bool async)
@@ -853,13 +826,11 @@ AssertMql(
 
     public override async Task Include_collection_order_by_non_key(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_order_by_non_key(async))).Message);
-
+        await base.Include_collection_order_by_non_key(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$sort" : { "PostalCode" : 1 } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_when_result_operator(bool async)
@@ -919,24 +890,20 @@ Customers.{ "$limit" : 1 }, { "$project" : { "_id" : 0, "_v" : null } }
 
     public override async Task Include_collection_with_last(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_with_last(async))).Message);
-
+        await base.Include_collection_with_last(async);
         AssertMql(
-);
+            """
+Customers.{ "$sort" : { "CompanyName" : 1 } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }, { "$group" : { "_id" : null, "_last" : { "$last" : "$$ROOT" } } }, { "$replaceRoot" : { "newRoot" : "$_last" } }
+""");
     }
 
     public override async Task Include_collection_OrderBy_empty_list_does_not_contains(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_OrderBy_empty_list_does_not_contains(async))).Message);
-
+        await base.Include_collection_OrderBy_empty_list_does_not_contains(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^A", "options" : "s" } } } }, { "$project" : { "_id" : 0, "_document" : "$$ROOT", "_key1" : { "$not" : { "$in" : ["$_id", []] } } } }, { "$sort" : { "_key1" : 1 } }, { "$replaceRoot" : { "newRoot" : "$_document" } }, { "$skip" : 1 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_multiple_references_then_include_multi_level_reverse(bool async)
@@ -959,20 +926,20 @@ Customers.{ "$limit" : 1 }, { "$project" : { "_id" : 0, "_v" : null } }
 
     public override async Task Include_is_not_ignored_when_projection_contains_client_method_and_complex_expression(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_is_not_ignored_when_projection_contains_client_method_and_complex_expression(async));
-
+        await base.Include_is_not_ignored_when_projection_contains_client_method_and_complex_expression(async);
         AssertMql(
-);
+            """
+Employees.{ "$match" : { "$or" : [{ "_id" : 1 }, { "_id" : 2 }] } }, { "$sort" : { "_id" : 1 } }, { "$lookup" : { "from" : "Employees", "localField" : "ReportsTo", "foreignField" : "_id", "as" : "_lookup_Manager" } }, { "$unwind" : { "path" : "$_lookup_Manager", "preserveNullAndEmptyArrays" : true } }
+""");
     }
 
     public override async Task Include_reference_with_filter_reordered(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_reference_with_filter_reordered(async));
-
+        await base.Include_reference_with_filter_reordered(async);
         AssertMql(
-);
+            """
+Orders.{ "$match" : { "CustomerID" : "ALFKI" } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }
+""");
     }
 
     public override async Task Include_collection_order_by_subquery(bool async)
@@ -988,11 +955,11 @@ Customers.{ "$limit" : 1 }, { "$project" : { "_id" : 0, "_v" : null } }
 
     public override async Task Include_reference_and_collection_order_by(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_reference_and_collection_order_by(async));
-
+        await base.Include_reference_and_collection_order_by(async);
         AssertMql(
-);
+            """
+Orders.{ "$match" : { "CustomerID" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$sort" : { "_id" : 1 } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Then_include_collection_order_by_collection_column(bool async)
@@ -1017,13 +984,11 @@ Customers.{ "$limit" : 1 }, { "$project" : { "_id" : 0, "_v" : null } }
 
     public override async Task Include_collection_skip_no_order_by(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_skip_no_order_by(async))).Message);
-
+        await base.Include_collection_skip_no_order_by(async);
         AssertMql(
-);
+            """
+Customers.{ "$skip" : 10 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_multi_level_reference_then_include_collection_predicate(bool async)
@@ -1046,22 +1011,20 @@ Customers.{ "$limit" : 1 }, { "$project" : { "_id" : 0, "_v" : null } }
 
     public override async Task Include_where_skip_take_projection(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Include_where_skip_take_projection(async));
-
+        await base.Include_where_skip_take_projection(async);
         AssertMql(
-);
+            """
+OrderDetails.{ "$match" : { "Quantity" : 10 } }, { "$sort" : { "_id.OrderID" : 1, "_id.ProductID" : 1 } }, { "$skip" : 1 }, { "$limit" : 2 }, { "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id.OrderID", "foreignField" : "_id", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "Outer" : "$_outer", "Inner" : "$_inner", "_id" : 0 } }, { "$project" : { "CustomerID" : "$Inner.CustomerID", "_id" : 0 } }
+""");
     }
 
     public override async Task Include_with_take(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_with_take(async))).Message);
-
+        await base.Include_with_take(async);
         AssertMql(
-);
+            """
+Customers.{ "$sort" : { "ContactName" : -1 } }, { "$limit" : 10 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_multiple_references(bool async)
@@ -1104,13 +1067,11 @@ Customers.{ "$limit" : 1 }, { "$project" : { "_id" : 0, "_v" : null } }
 
     public override async Task Include_collection_with_conditional_order_by(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_with_conditional_order_by(async))).Message);
-
+        await base.Include_collection_with_conditional_order_by(async);
         AssertMql(
-);
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$project" : { "_id" : 0, "_document" : "$$ROOT", "_key1" : { "$cond" : { "if" : { "$eq" : [{ "$indexOfCP" : ["$_id", "S"] }, 0] }, "then" : 1, "else" : 2 } } } }, { "$sort" : { "_key1" : 1 } }, { "$replaceRoot" : { "newRoot" : "$_document" } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_non_existing_navigation(bool async)

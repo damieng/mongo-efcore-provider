@@ -96,11 +96,11 @@ public class NorthwindJoinQueryMongoTest : NorthwindJoinQueryTestBase<NorthwindQ
 
     public override async Task Join_customers_orders_projection(bool async)
     {
-        // Fails: Include (joins) issue EF-117
-        await AssertTranslationFailed(() => base.Join_customers_orders_projection(async));
-
+        await base.Join_customers_orders_projection(async);
         AssertMql(
-        );
+            """
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "Outer" : "$_outer", "Inner" : "$_inner", "_id" : 0 } }, { "$project" : { "ContactName" : "$Outer.ContactName", "OrderID" : "$Inner._id", "_id" : 0 } }
+""");
     }
 
     public override async Task Join_customers_orders_entities(bool async)
@@ -130,11 +130,11 @@ public class NorthwindJoinQueryMongoTest : NorthwindJoinQueryTestBase<NorthwindQ
 
     public override async Task Join_customers_orders_select(bool async)
     {
-        // Fails: Include (joins) issue EF-117
-        await AssertTranslationFailed(() => base.Join_customers_orders_select(async));
-
+        await base.Join_customers_orders_select(async);
         AssertMql(
-        );
+            """
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "Outer" : "$_outer", "Inner" : "$_inner", "_id" : 0 } }, { "$project" : { "ContactName" : "$Outer.ContactName", "OrderID" : "$Inner._id", "_id" : 0 } }
+""");
     }
 
     public override async Task Join_customers_orders_with_subquery(bool async)
@@ -247,11 +247,11 @@ public class NorthwindJoinQueryMongoTest : NorthwindJoinQueryTestBase<NorthwindQ
 
     public override async Task GroupJoin_simple3(bool async)
     {
-        // Fails: Include (joins) issue EF-117
-        await AssertTranslationFailed(() => base.GroupJoin_simple3(async));
-
+        await base.GroupJoin_simple3(async);
         AssertMql(
-        );
+            """
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "Outer" : "$_outer", "Inner" : "$_inner", "_id" : 0 } }, { "$project" : { "OrderID" : "$Inner._id", "_id" : 0 } }
+""");
     }
 
     public override async Task GroupJoin_simple_ordering(bool async)
@@ -373,11 +373,11 @@ public class NorthwindJoinQueryMongoTest : NorthwindJoinQueryTestBase<NorthwindQ
 
     public override async Task GroupJoin_DefaultIfEmpty_Project(bool async)
     {
-        // Fails: Include (joins) issue EF-117
-        await AssertTranslationFailed(() => base.GroupJoin_DefaultIfEmpty_Project(async));
-
+        await base.GroupJoin_DefaultIfEmpty_Project(async);
         AssertMql(
-        );
+            """
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$project" : { "Outer" : "$_outer", "Group" : "$_inner", "_id" : 0 } }, { "$project" : { "_v" : { "$map" : { "input" : { "$cond" : { "if" : { "$eq" : [{ "$size" : "$Group" }, 0] }, "then" : [null], "else" : "$Group" } }, "as" : "i", "in" : { "Outer" : "$Outer", "Inner" : "$$i" } } }, "_id" : 0 } }, { "$unwind" : "$_v" }, { "$project" : { "_v" : "$_v.Inner._id", "_id" : 0 } }
+""");
     }
 
     public override async Task GroupJoin_SelectMany_subquery_with_filter(bool async)
@@ -553,11 +553,11 @@ public class NorthwindJoinQueryMongoTest : NorthwindJoinQueryTestBase<NorthwindQ
 
     public override async Task Condition_on_entity_with_include(bool async)
     {
-        // Fails: Include (joins) issue EF-117
-        await AssertTranslationFailed(() => base.Condition_on_entity_with_include(async));
-
+        await base.Condition_on_entity_with_include(async);
         AssertMql(
-        );
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$project" : { "Outer" : "$_outer", "Group" : "$_inner", "_id" : 0 } }, { "$project" : { "_v" : { "$map" : { "input" : { "$cond" : { "if" : { "$eq" : [{ "$size" : "$Group" }, 0] }, "then" : [null], "else" : "$Group" } }, "as" : "i", "in" : { "Outer" : "$Outer", "Inner" : "$$i" } } }, "_id" : 0 } }, { "$unwind" : "$_v" }, { "$project" : { "a" : { "$cond" : { "if" : { "$ne" : ["$_v.Inner", null] }, "then" : "$_v.Inner._id", "else" : -1 } }, "_id" : 0 } }
+""");
     }
 
     public override async Task Join_customers_orders_entities_same_entity_twice(bool async)
@@ -594,11 +594,11 @@ public class NorthwindJoinQueryMongoTest : NorthwindJoinQueryTestBase<NorthwindQ
 
     public override async Task GroupJoin_customers_employees_shadow(bool async)
     {
-        // Fails: Include (joins) issue EF-117
-        await AssertTranslationFailed(() => base.GroupJoin_customers_employees_shadow(async));
-
+        await base.GroupJoin_customers_employees_shadow(async);
         AssertMql(
-        );
+            """
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Employees", "localField" : "_outer.City", "foreignField" : "City", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "Outer" : "$_outer", "Inner" : "$_inner", "_id" : 0 } }, { "$project" : { "Title" : "$Inner.Title", "_id" : "$Inner._id" } }
+""");
     }
 
     public override async Task GroupJoin_customers_employees_subquery_shadow(bool async)

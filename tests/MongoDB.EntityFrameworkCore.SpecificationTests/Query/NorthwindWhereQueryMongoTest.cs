@@ -1031,9 +1031,7 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }
 
     public override async Task Where_expression_invoke_2(bool async)
     {
-        // Fails: Cross-document navigation access issue EF-216
-        await AssertTranslationFailed(() => base.Where_expression_invoke_2(async));
-
+        await base.Where_expression_invoke_2(async);
         AssertMql();
     }
 
@@ -1234,11 +1232,7 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }
 
     public override async Task Where_navigation_contains(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Where_navigation_contains(async))).Message);
-
+        await base.Where_navigation_contains(async);
         AssertMql();
     }
 

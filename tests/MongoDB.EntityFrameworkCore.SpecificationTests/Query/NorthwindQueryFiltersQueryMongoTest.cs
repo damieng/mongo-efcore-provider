@@ -134,11 +134,8 @@ Customers.{ "$match" : { "CompanyName" : { "$regularExpression" : { "pattern" : 
 
     public override async Task Included_many_to_one_query(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Included_many_to_one_query(async));
-
-        AssertMql(
-);
+        await base.Included_many_to_one_query(async);
+        AssertMql();
     }
 
     public override async Task Project_reference_that_itself_has_query_filter_with_another_reference(bool async)
@@ -197,11 +194,8 @@ Products.
 
     public override async Task Included_many_to_one_query2(bool async)
     {
-        // Fails: Include issue EF-117
-        await AssertTranslationFailed(() => base.Included_many_to_one_query2(async));
-
-        AssertMql(
-);
+        await base.Included_many_to_one_query2(async);
+        AssertMql();
     }
 
     public override async Task Included_one_to_many_query_with_client_eval(bool async)

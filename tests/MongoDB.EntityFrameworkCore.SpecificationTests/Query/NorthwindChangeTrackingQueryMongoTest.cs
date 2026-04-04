@@ -114,11 +114,11 @@ Customers.{ "$sort" : { "_id" : 1 } }, { "$limit" : 2 }
 
     public override void Precedence_of_tracking_modifiers5()
     {
-        // Fails: Cross-document navigation access issue EF-216
-        AssertTranslationFailed(() => base.Precedence_of_tracking_modifiers5());
-
+        base.Precedence_of_tracking_modifiers5();
         AssertMql(
-);
+            """
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "Outer" : "$_outer", "Inner" : "$_inner", "_id" : 0 } }, { "$match" : { "Outer._id" : "ALFKI" } }, { "$project" : { "_v" : "$Inner", "_id" : 0 } }
+""");
     }
 
     public override void Precedence_of_tracking_modifiers2()
@@ -256,11 +256,11 @@ Customers.{ "$project" : { "_v" : "$Region", "_id" : 0 } }
 
     public override void Precedence_of_tracking_modifiers4()
     {
-        // Fails: Cross-document navigation access issue EF-216
-        AssertTranslationFailed(() => base.Precedence_of_tracking_modifiers4());
-
+        base.Precedence_of_tracking_modifiers4();
         AssertMql(
-);
+            """
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "Outer" : "$_outer", "Inner" : "$_inner", "_id" : 0 } }, { "$match" : { "Outer._id" : "ALFKI" } }, { "$project" : { "_v" : "$Inner", "_id" : 0 } }
+""");
     }
 
     private static void AssertTranslationFailed(Action query)
