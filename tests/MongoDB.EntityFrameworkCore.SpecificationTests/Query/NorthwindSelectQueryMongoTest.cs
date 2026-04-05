@@ -1124,10 +1124,11 @@ Orders.{ "$sort" : { "CustomerID" : 1 } }, { "$project" : { "_outer" : "$$ROOT",
 
     public override async Task Select_entity_compared_to_null(bool async)
     {
-        // Fails: Subquery selection
-        await AssertTranslationFailed(() => base.Select_entity_compared_to_null(async));
-
-        AssertMql();
+        await base.Select_entity_compared_to_null(async);
+        AssertMql(
+            """
+Orders.{ "$match" : { "CustomerID" : "ALFKI" } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }
+""");
     }
 
     public override async Task Explicit_cast_in_arithmetic_operation_is_preserved(bool async)

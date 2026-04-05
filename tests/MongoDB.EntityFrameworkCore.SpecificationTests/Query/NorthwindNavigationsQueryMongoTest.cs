@@ -156,11 +156,11 @@ public class NorthwindNavigationsQueryMongoTest : NorthwindNavigationsQueryTestB
 
     public override async Task Select_Navigations(bool async)
     {
-        // Fails: Cross-document navigation access issue EF-216
-        await AssertTranslationFailed(() => base.Select_Navigations(async));
-
+        await base.Select_Navigations(async);
         AssertMql(
-        );
+            """
+Orders.{ "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }
+""");
     }
 
     public override async Task Select_Where_Navigation_Multiple_Access(bool async)

@@ -330,14 +330,11 @@ Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "o
 
     public override async Task Include_collection_OrderBy_list_does_not_contains(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                base.Include_collection_OrderBy_list_does_not_contains(async))).Message);
-
+        await base.Include_collection_OrderBy_list_does_not_contains(async);
         AssertMql(
-        );
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^A", "options" : "s" } } } }, { "$project" : { "_id" : 0, "_document" : "$$ROOT", "_key1" : { "$not" : { "$in" : ["$_id", ["ALFKI"]] } } } }, { "$sort" : { "_key1" : 1 } }, { "$replaceRoot" : { "newRoot" : "$_document" } }, { "$skip" : 1 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_reference_dependent_already_tracked(bool async)
@@ -498,14 +495,11 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$lookup" : { "from" : "Orders",
 
     public override async Task Include_collection_OrderBy_empty_list_contains(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_OrderBy_empty_list_contains(async)))
-            .Message);
-
+        await base.Include_collection_OrderBy_empty_list_contains(async);
         AssertMql(
-        );
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^A", "options" : "s" } } } }, { "$project" : { "_id" : 0, "_document" : "$$ROOT", "_key1" : { "$in" : ["$_id", []] } } }, { "$sort" : { "_key1" : 1 } }, { "$replaceRoot" : { "newRoot" : "$_document" } }, { "$skip" : 1 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_references_and_collection_multi_level(bool async)
@@ -683,14 +677,11 @@ Orders.{ "$match" : { "_id" : -1 } }, { "$lookup" : { "from" : "Customers", "loc
 
     public override async Task Include_collection_OrderBy_list_contains(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_OrderBy_list_contains(async)))
-            .Message);
-
+        await base.Include_collection_OrderBy_list_contains(async);
         AssertMql(
-        );
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^A", "options" : "s" } } } }, { "$project" : { "_id" : 0, "_document" : "$$ROOT", "_key1" : { "$in" : ["$_id", ["ALFKI"]] } } }, { "$sort" : { "_key1" : 1 } }, { "$replaceRoot" : { "newRoot" : "$_document" } }, { "$skip" : 1 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Multi_level_includes_are_applied_with_skip(bool async)
@@ -897,14 +888,11 @@ Customers.{ "$sort" : { "CompanyName" : 1 } }, { "$lookup" : { "from" : "Orders"
 
     public override async Task Include_collection_OrderBy_empty_list_does_not_contains(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                base.Include_collection_OrderBy_empty_list_does_not_contains(async))).Message);
-
+        await base.Include_collection_OrderBy_empty_list_does_not_contains(async);
         AssertMql(
-        );
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^A", "options" : "s" } } } }, { "$project" : { "_id" : 0, "_document" : "$$ROOT", "_key1" : { "$not" : { "$in" : ["$_id", []] } } } }, { "$sort" : { "_key1" : 1 } }, { "$replaceRoot" : { "newRoot" : "$_document" } }, { "$skip" : 1 }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+""");
     }
 
     public override async Task Include_multiple_references_then_include_multi_level_reverse(bool async)

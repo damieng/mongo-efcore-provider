@@ -635,7 +635,7 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
                     Expression.Constant(null, serializerType)),
                 Expression.Constant(null, serializerType));
 
-            if (lookup.IsReference)
+            if (lookup.ShouldUnwind)
             {
                 var unwindDoc = new BsonDocument("$unwind", new BsonDocument
                 {

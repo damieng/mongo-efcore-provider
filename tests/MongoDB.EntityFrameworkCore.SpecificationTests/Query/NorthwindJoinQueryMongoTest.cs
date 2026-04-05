@@ -400,11 +400,11 @@ Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "
 
     public override async Task GroupJoin_SelectMany_subquery_with_filter_and_DefaultIfEmpty(bool async)
     {
-        // Fails: Include (joins) issue EF-117
-        await AssertTranslationFailed(() => base.GroupJoin_SelectMany_subquery_with_filter_and_DefaultIfEmpty(async));
-
+        await base.GroupJoin_SelectMany_subquery_with_filter_and_DefaultIfEmpty(async);
         AssertMql(
-        );
+            """
+Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }, { "$unwind" : { "path" : "$_lookup_Orders", "preserveNullAndEmptyArrays" : true } }
+""");
     }
 
     public override async Task GroupJoin_SelectMany_subquery_with_filter_orderby_and_DefaultIfEmpty(bool async)

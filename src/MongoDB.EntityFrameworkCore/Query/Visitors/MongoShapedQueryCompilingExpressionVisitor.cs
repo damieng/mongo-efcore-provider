@@ -104,6 +104,23 @@ internal sealed class MongoShapedQueryCompilingExpressionVisitor : ShapedQueryCo
                 Expression.Constant(shapedQueryExpression.ResultCardinality));
         }
 
+        // For join queries without pending lookups (explicit Join projecting entities),
+        // register lookups with $unwind so the entity path's StripJoinForLookup + AppendLookupStages
+        // produces flat BsonDocuments with entity fields at root + _lookup_ fields.
+        if (mongoQueryExpression.IsJoinQuery && mongoQueryExpression.PendingLookups.Count == 0)
+        {
+            var outerEntityType = mongoQueryExpression.CollectionExpression.EntityType;
+            foreach (var (innerEntityType, _) in mongoQueryExpression.InnerCollections)
+            {
+                var navigation = outerEntityType.GetNavigations()
+                    .FirstOrDefault(n => n.TargetEntityType == innerEntityType);
+                if (navigation != null)
+                {
+                    mongoQueryExpression.AddLookup(new Expressions.LookupExpression(navigation, forceUnwind: true));
+                }
+            }
+        }
+
         // Mixed path: projection contains entity references that LINQ V3 can't handle.
         // Strip the Select, return full BsonDocuments, and build a client-side shaper.
         if (mongoQueryExpression.CapturedExpression is MethodCallExpression

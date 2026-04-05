@@ -29,9 +29,11 @@ internal sealed class LookupExpression
     /// Create a <see cref="LookupExpression"/> for the given navigation.
     /// </summary>
     /// <param name="navigation">The <see cref="INavigation"/> that requires a $lookup.</param>
-    public LookupExpression(INavigation navigation)
+    /// <param name="forceUnwind">Force $unwind even for collection navigations (used for explicit Join).</param>
+    public LookupExpression(INavigation navigation, bool forceUnwind = false)
     {
         Navigation = navigation;
+        ForceUnwind = forceUnwind;
 
         var foreignKey = navigation.ForeignKey;
         var targetEntityType = navigation.TargetEntityType;
@@ -70,4 +72,10 @@ internal sealed class LookupExpression
 
     /// <summary>Whether this lookup is for a single reference (not a collection).</summary>
     public bool IsReference => !Navigation.IsCollection;
+
+    /// <summary>Whether $unwind should be applied after $lookup.</summary>
+    public bool ShouldUnwind => IsReference || ForceUnwind;
+
+    /// <summary>Whether $unwind is forced regardless of navigation type.</summary>
+    public bool ForceUnwind { get; }
 }
