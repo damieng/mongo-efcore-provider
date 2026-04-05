@@ -174,6 +174,22 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
     }
 
     [Fact]
+    public void Include_multi_level_materializes_nested_entities()
+    {
+        var (ordersCollection, customersCollection) = SetupOrdersAndCustomers();
+
+        using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
+        var order = db.Orders
+            .Include(o => o.Customer)
+                .ThenInclude(c => c.Orders)
+            .First();
+
+        Assert.NotNull(order.Customer);
+        Assert.NotNull(order.Customer.Orders);
+        Assert.True(order.Customer.Orders.Count > 0);
+    }
+
+    [Fact]
     public void Include_self_join_materializes_related_entity()
     {
         var staffName = TemporaryDatabaseFixtureBase.CreateCollectionName("Staff") + Guid.NewGuid().ToString("N")[..8];

@@ -508,9 +508,10 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
         }
 
         // LeftJoin(outer, inner, ...) or Join(outer, inner, ...) or GroupJoin(...)
+        // Recurse into the outer source to handle nested joins (multi-level Include).
         if (call.Method.Name is "LeftJoin" or "Join" or "GroupJoin")
         {
-            return call.Arguments[0]; // The outer source (e.g., DbSet<Order>)
+            return FindBaseSourceThroughJoin(call.Arguments[0]) ?? call.Arguments[0];
         }
 
         // SelectMany(source, ...) - part of GroupJoin+SelectMany pattern
