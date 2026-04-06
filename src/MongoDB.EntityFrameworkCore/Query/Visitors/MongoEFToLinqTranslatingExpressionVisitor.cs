@@ -66,6 +66,26 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
 
     public Dictionary<string, object> AdditionalState { get; } = new();
 
+    /// <summary>
+    /// Translate a projected query (anonymous types with entity members).
+    /// Strips joins for lookup-based queries and appends any pending $lookup stages.
+    /// </summary>
+    public Expression TranslateProjected(Expression? efQueryExpression)
+    {
+        if (efQueryExpression == null)
+        {
+            return AppendLookupStages(_source);
+        }
+
+        // For explicit Join queries with pending lookups, strip the join and use $lookup instead.
+        var expressionToTranslate = _pendingLookups.Count > 0
+            ? StripJoinForLookup(efQueryExpression) ?? efQueryExpression
+            : efQueryExpression;
+
+        var query = Visit(expressionToTranslate)!;
+        return AppendLookupStages(query);
+    }
+
     public MethodCallExpression Translate(
         Expression? efQueryExpression,
         ResultCardinality resultCardinality)
@@ -76,12 +96,18 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
             return ApplyAsSerializer(source, BsonDocumentSerializer.Instance, typeof(BsonDocument));
         }
 
-        // For join queries, strip the outermost Select (which extracts from TransparentIdentifier)
-        // so the driver returns the full joined result as BsonDocument with _outer/_inner fields.
-        // The Join, Where, OrderBy, etc. are preserved and handled by the driver.
-        var expressionToTranslate = _innerSources.Count > 0
-            ? StripOuterSelectForJoin(efQueryExpression) ?? efQueryExpression
-            : efQueryExpression;
+        // For explicit Join queries with pending lookups (forceUnwind), strip the join
+        // and let AppendLookupStages handle it. For Include LeftJoins, strip the outer Select
+        // and let the driver handle the LeftJoin natively.
+        var expressionToTranslate = efQueryExpression;
+        if (_pendingLookups.Any(l => l.ForceUnwind))
+        {
+            expressionToTranslate = StripJoinForLookup(efQueryExpression) ?? efQueryExpression;
+        }
+        else if (_innerSources.Count > 0)
+        {
+            expressionToTranslate = StripOuterSelectForJoin(efQueryExpression) ?? efQueryExpression;
+        }
 
         var query = (MethodCallExpression)Visit(expressionToTranslate)!;
 
@@ -144,6 +170,12 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
             return RewriteLeftJoinResultSelectors(call.Arguments[0]);
         }
 
+        // The outermost IS the Join/LeftJoin itself (Select was already stripped by the mixed path)
+        if (call.Method.Name is "Join" or "LeftJoin" && call.Method.DeclaringType == typeof(Queryable))
+        {
+            return RewriteLeftJoinResultSelectors(call);
+        }
+
         return null;
     }
 
@@ -175,16 +207,16 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
             return call;
         }
 
-        if (call.Method.Name != "LeftJoin" || call.Method.DeclaringType != typeof(Queryable))
+        if (call.Method.Name is not ("LeftJoin" or "Join") || call.Method.DeclaringType != typeof(Queryable))
         {
             return expression;
         }
 
         var genericArgs = call.Method.GetGenericArguments();
         var resultType = genericArgs[^1];
-        if (!resultType.Name.StartsWith("TransparentIdentifier"))
+        if (resultType == typeof(LeftJoinResult<,>).MakeGenericType(genericArgs[0], genericArgs[1]))
         {
-            return expression;
+            return expression; // Already rewritten
         }
 
         // Recurse into the outer source for nested joins
@@ -210,6 +242,65 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
         newArgs[4] = Expression.Quote(newResultSelector);
 
         return Expression.Call(null, newMethod, newArgs);
+    }
+
+    /// <summary>
+    /// For explicit Join queries, strip the Join chain and return just the base source.
+    /// The $lookup stages appended by AppendLookupStages handle the actual join.
+    /// </summary>
+    private static Expression? StripJoinForLookup(Expression expression)
+    {
+        if (expression is not MethodCallExpression outerCall)
+            return null;
+
+        var baseSource = FindBaseSourceThroughJoin(outerCall);
+        if (baseSource != null && IsJoinRelatedMethod(outerCall))
+            return baseSource;
+
+        var source = outerCall.Arguments[0];
+        baseSource = FindBaseSourceThroughJoin(source);
+        if (baseSource == null)
+            return null;
+
+        var newArgs = outerCall.Arguments.ToArray();
+        newArgs[0] = baseSource;
+
+        var method = outerCall.Method;
+        if (method.IsGenericMethod)
+        {
+            var baseItemType = baseSource.Type.TryGetItemType();
+            if (baseItemType != null)
+            {
+                var genericDef = method.GetGenericMethodDefinition();
+                if (genericDef.GetGenericArguments().Length == 1)
+                    method = genericDef.MakeGenericMethod(baseItemType);
+            }
+        }
+
+        return Expression.Call(null, method, newArgs);
+    }
+
+    private static bool IsJoinRelatedMethod(MethodCallExpression call)
+        => call.Method.Name is "Select" or "LeftJoin" or "Join" or "GroupJoin" or "SelectMany" or "Where";
+
+    private static Expression? FindBaseSourceThroughJoin(Expression expression)
+    {
+        if (expression is not MethodCallExpression call)
+            return null;
+
+        if (call.Method.Name == "Select" && call.Arguments.Count >= 2)
+            return FindBaseSourceThroughJoin(call.Arguments[0]);
+
+        if (call.Method.Name is "LeftJoin" or "Join" or "GroupJoin")
+            return FindBaseSourceThroughJoin(call.Arguments[0]) ?? call.Arguments[0];
+
+        if (call.Method.Name == "SelectMany")
+            return FindBaseSourceThroughJoin(call.Arguments[0]);
+
+        if (call.Method.Name == "Where" && call.Arguments.Count >= 2)
+            return FindBaseSourceThroughJoin(call.Arguments[0]);
+
+        return null;
     }
 
     private static MethodCallExpression ApplyAsSerializer(

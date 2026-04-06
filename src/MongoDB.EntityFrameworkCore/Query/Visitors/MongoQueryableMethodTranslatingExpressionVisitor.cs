@@ -418,19 +418,15 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
         navigation ??= outerEntityType.GetNavigations()
             .FirstOrDefault(n => n.TargetEntityType == innerEntityType);
 
-        if (navigation == null)
-        {
-            // Explicit Join without navigation - don't rebind, driver handles projection
-            return innerShaper;
-        }
-
         // Use "_inner" to match the driver's Join pipeline field naming.
         // The driver's $lookup + $unwind produces documents with _outer and _inner fields.
+        outerQueryExpression.UsesDriverJoinFields = true;
         Expression parentAccess = new RootReferenceExpression(outerEntityType);
         var lookupAlias = "_inner";
 
-        var lookupAccessExpression = new ObjectAccessExpression(
-            navigation, parentAccess, false, lookupAlias);
+        ObjectAccessExpression lookupAccessExpression = navigation != null
+            ? new ObjectAccessExpression(navigation, parentAccess, false, lookupAlias)
+            : new ObjectAccessExpression(innerEntityType, parentAccess, false, lookupAlias);
         var newInnerProjection = new EntityProjectionExpression(innerEntityType, lookupAccessExpression);
 
         // Register on the outer query expression and create a new binding

@@ -212,8 +212,8 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
 
                         switch (accessExpression)
                         {
-                            case ObjectAccessExpression { Name: "_inner" } when _queryExpression.IsJoinQuery:
-                                // For join queries, _inner is at root level in the BsonDocument.
+                            case ObjectAccessExpression { Name: "_inner" } when _queryExpression.UsesDriverJoinFields:
+                                // For Include joins, _inner is at root level in the BsonDocument.
                                 innerAccessExpression = DocParameter;
                                 fieldRequired = false;
                                 break;
@@ -223,8 +223,8 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
                                     (innerObjectAccessExpression.Navigation.DeclaringEntityType, innerAccessExpression);
                                 fieldRequired = innerObjectAccessExpression.Required;
                                 break;
-                            case RootReferenceExpression when _queryExpression.IsJoinQuery:
-                                // For join queries, the outer entity is under "_outer".
+                            case RootReferenceExpression when _queryExpression.UsesDriverJoinFields:
+                                // For Include joins, the outer entity is under "_outer".
                                 innerAccessExpression = DocParameter;
                                 fieldName = "_outer";
                                 break;
@@ -420,7 +420,7 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
         var entityType = declaredType ?? docExpression switch
         {
             RootReferenceExpression rootReferenceExpression => rootReferenceExpression.EntityType,
-            ObjectAccessExpression docAccessExpression => docAccessExpression.Navigation.TargetEntityType,
+            ObjectAccessExpression docAccessExpression => docAccessExpression.Navigation?.TargetEntityType ?? docAccessExpression.EntityType,
             _ => _rootEntityType
         };
 
@@ -433,12 +433,12 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
         {
             innerExpression = docExpression switch
             {
-                // For join queries, the outer entity is under "_outer" in the BsonDocument.
-                RootReferenceExpression when _queryExpression.IsJoinQuery
+                // For Include joins, the outer entity is under "_outer" in the BsonDocument.
+                RootReferenceExpression when _queryExpression.UsesDriverJoinFields
                     => CreateGetValueExpression(DocParameter, "_outer", required, typeof(BsonDocument)),
                 RootReferenceExpression => CreateGetValueExpression(DocParameter, null, required, typeof(BsonDocument)),
-                // For join queries, _inner is at the root of the BsonDocument, not inside _outer.
-                ObjectAccessExpression { Name: "_inner" } when _queryExpression.IsJoinQuery
+                // For Include joins, _inner is at the root of the BsonDocument, not inside _outer.
+                ObjectAccessExpression { Name: "_inner" } when _queryExpression.UsesDriverJoinFields
                     => CreateGetValueExpression(DocParameter, "_inner", required, typeof(BsonDocument)),
                 ObjectAccessExpression docAccessExpression => CreateGetValueExpression(docAccessExpression.AccessExpression,
                     docAccessExpression.Name, required, typeof(BsonDocument)),

@@ -57,17 +57,35 @@ internal sealed class ObjectAccessExpression : Expression, IPrintableExpression,
         Required = required;
     }
 
+    /// <summary>
+    /// Create a <see cref="ObjectAccessExpression"/> for a cross-collection join result
+    /// where no navigation is defined (explicit Join).
+    /// </summary>
+    public ObjectAccessExpression(
+        IEntityType entityType,
+        Expression accessExpression,
+        bool required,
+        string name)
+    {
+        Name = name;
+        EntityType = entityType;
+        AccessExpression = accessExpression;
+        Required = required;
+    }
+
+    internal IEntityType? EntityType { get; }
+
     /// <inheritdoc />
     public override ExpressionType NodeType
         => ExpressionType.Extension;
 
     /// <inheritdoc />
     public override Type Type
-        => Navigation.ClrType;
+        => Navigation?.ClrType ?? EntityType!.ClrType;
 
     public string Name { get; }
 
-    public INavigation Navigation { get; }
+    public INavigation? Navigation { get; }
 
     public Expression AccessExpression { get; }
 
@@ -79,7 +97,9 @@ internal sealed class ObjectAccessExpression : Expression, IPrintableExpression,
 
     public ObjectAccessExpression Update(Expression outerExpression)
         => outerExpression != AccessExpression
-            ? new ObjectAccessExpression(Navigation, outerExpression, Required)
+            ? (Navigation != null
+                ? new ObjectAccessExpression(Navigation, outerExpression, Required)
+                : new ObjectAccessExpression(EntityType!, outerExpression, Required, Name))
             : this;
 
     void IPrintableExpression.Print(ExpressionPrinter expressionPrinter)

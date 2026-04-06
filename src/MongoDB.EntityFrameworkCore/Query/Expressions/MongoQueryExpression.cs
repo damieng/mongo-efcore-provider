@@ -117,6 +117,12 @@ internal sealed class MongoQueryExpression : Expression
     /// </summary>
     public bool IsJoinQuery => _innerCollections.Count > 0;
 
+    /// <summary>
+    /// Whether this join query uses the driver's _outer/_inner field naming convention.
+    /// True for Include-generated LeftJoins (LeftJoinResult), false for explicit user Joins.
+    /// </summary>
+    public bool UsesDriverJoinFields { get; set; }
+
 
     /// <summary>
     /// Register an inner collection for a join operation.
