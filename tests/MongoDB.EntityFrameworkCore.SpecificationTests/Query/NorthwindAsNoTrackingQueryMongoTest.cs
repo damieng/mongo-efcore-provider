@@ -102,7 +102,9 @@ Customers.
         await base.Applied_after_navigation_expansion(async);
 
         AssertMql(
-);
+"""
+Orders.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Customers", "localField" : "_outer.CustomerID", "foreignField" : "_id", "as" : "_inner" } }, { "$unwind" : { "path" : "$_inner", "preserveNullAndEmptyArrays" : true } }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_inner.City" : { "$ne" : "London" } } }
+""");
     }
 
     public override async Task Include_reference_and_collection(bool async)
@@ -118,7 +120,9 @@ Customers.
         await base.Applied_to_body_clause(async);
 
         AssertMql(
-);
+"""
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_outer._id" : "ALFKI" } }
+""");
     }
 
     public override async Task Applied_to_projection(bool async)
@@ -126,7 +130,9 @@ Customers.
         await base.Applied_to_projection(async);
 
         AssertMql(
-);
+"""
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_outer._id" : "ALFKI" } }
+""");
     }
 
     public override async Task Applied_to_body_clause_with_projection(bool async)
@@ -134,7 +140,9 @@ Customers.
         await base.Applied_to_body_clause_with_projection(async);
 
         AssertMql(
-);
+"""
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_outer._id" : "ALFKI" } }
+""");
     }
 
     private void AssertMql(params string[] expected)
