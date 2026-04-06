@@ -76,31 +76,140 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
             return ApplyAsSerializer(source, BsonDocumentSerializer.Instance, typeof(BsonDocument));
         }
 
-        // For queries with pending $lookup stages (Include), strip any Join+Select
-        // that EF generated and use $lookup stages appended to the base source instead.
-        // This keeps entity fields at the root of the BsonDocument.
-        var expressionToTranslate = efQueryExpression;
-        if (_pendingLookups.Count > 0)
-        {
-            expressionToTranslate = StripJoinForLookup(efQueryExpression) ?? efQueryExpression;
-        }
+        // For join queries, strip the outermost Select (which extracts from TransparentIdentifier)
+        // so the driver returns the full joined result as BsonDocument with _outer/_inner fields.
+        // The Join, Where, OrderBy, etc. are preserved and handled by the driver.
+        var expressionToTranslate = _innerSources.Count > 0
+            ? StripOuterSelectForJoin(efQueryExpression) ?? efQueryExpression
+            : efQueryExpression;
 
         var query = (MethodCallExpression)Visit(expressionToTranslate)!;
 
         if (resultCardinality == ResultCardinality.Enumerable)
         {
-            query = (MethodCallExpression)AppendLookupStages(query);
-            return ApplyAsSerializer(query, BsonDocumentSerializer.Instance, typeof(BsonDocument));
+            var withLookups = AppendLookupStages(query);
+            return ApplyAsSerializer(withLookups, BsonDocumentSerializer.Instance, typeof(BsonDocument));
         }
 
-        // For single cardinality: append lookup to the source, then wrap with terminal op
-        var sourceWithLookups = AppendLookupStages(query.Arguments[0]);
-        var documentQueryableSource = ApplyAsSerializer(sourceWithLookups, BsonDocumentSerializer.Instance, typeof(BsonDocument));
+        var withLookupsSingle = AppendLookupStages(query.Arguments[0]);
+        var documentQueryableSource = ApplyAsSerializer(withLookupsSingle, BsonDocumentSerializer.Instance, typeof(BsonDocument));
 
         return Expression.Call(
             null,
             query.Method.GetGenericMethodDefinition().MakeGenericMethod(typeof(BsonDocument)),
             documentQueryableSource);
+    }
+
+    /// <summary>
+    /// For join queries, strip the outermost Select that EF adds to extract from TransparentIdentifier,
+    /// and rewrite any LeftJoin result selectors from TransparentIdentifier to LeftJoinResult so the
+    /// driver can serialize them. The driver produces documents with _outer/_inner fields which match
+    /// the LeftJoinResult property names.
+    /// </summary>
+    private static Expression? StripOuterSelectForJoin(Expression expression)
+    {
+        if (expression is not MethodCallExpression call)
+        {
+            return null;
+        }
+
+        // Terminal op (First, etc.) wrapping a Select
+        if (call.Arguments.Count >= 1 && call.Arguments[0] is MethodCallExpression innerCall
+            && innerCall.Method.Name == "Select" && innerCall.Method.DeclaringType == typeof(Queryable))
+        {
+            var selectSource = RewriteLeftJoinResultSelectors(innerCall.Arguments[0]);
+            var newArgs = call.Arguments.ToArray();
+            newArgs[0] = selectSource;
+
+            var method = call.Method;
+            if (method.IsGenericMethod)
+            {
+                var sourceItemType = selectSource.Type.TryGetItemType();
+                if (sourceItemType != null)
+                {
+                    var genericDef = method.GetGenericMethodDefinition();
+                    if (genericDef.GetGenericArguments().Length == 1)
+                    {
+                        method = genericDef.MakeGenericMethod(sourceItemType);
+                    }
+                }
+            }
+
+            return Expression.Call(null, method, newArgs);
+        }
+
+        // The outermost IS the Select (enumerable cardinality, no terminal op)
+        if (call.Method.Name == "Select" && call.Method.DeclaringType == typeof(Queryable))
+        {
+            return RewriteLeftJoinResultSelectors(call.Arguments[0]);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Recursively rewrite LeftJoin result selectors from TransparentIdentifier to LeftJoinResult.
+    /// Handles nested joins (multi-level Include) by recursing into the outer source.
+    /// </summary>
+    private static Expression RewriteLeftJoinResultSelectors(Expression expression)
+    {
+        if (expression is not MethodCallExpression call)
+        {
+            return expression;
+        }
+
+        // For Select nodes between joins, recurse into the source and rewrite the Select's generic type
+        if (call.Method.Name == "Select" && call.Method.DeclaringType == typeof(Queryable))
+        {
+            var rewrittenSource = RewriteLeftJoinResultSelectors(call.Arguments[0]);
+            if (rewrittenSource != call.Arguments[0])
+            {
+                // Rebuild the Select with updated generic types
+                var sourceItemType = rewrittenSource.Type.TryGetItemType()!;
+                var selectMethod = call.Method.GetGenericMethodDefinition();
+                var selectReturnType = call.Method.ReturnType.TryGetItemType()!;
+                var newSelectMethod = selectMethod.MakeGenericMethod(sourceItemType, selectReturnType);
+                return Expression.Call(null, newSelectMethod, rewrittenSource, call.Arguments[1]);
+            }
+
+            return call;
+        }
+
+        if (call.Method.Name != "LeftJoin" || call.Method.DeclaringType != typeof(Queryable))
+        {
+            return expression;
+        }
+
+        var genericArgs = call.Method.GetGenericArguments();
+        var resultType = genericArgs[^1];
+        if (!resultType.Name.StartsWith("TransparentIdentifier"))
+        {
+            return expression;
+        }
+
+        // Recurse into the outer source for nested joins
+        var outerSource = RewriteLeftJoinResultSelectors(call.Arguments[0]);
+
+        var resultSelectorQuoted = call.Arguments[4];
+        var resultSelector = resultSelectorQuoted.UnwrapLambdaFromQuote();
+        var outerType = resultSelector.Parameters[0].Type;
+        var innerType = resultSelector.Parameters[1].Type;
+
+        var joinResultType = typeof(LeftJoinResult<,>).MakeGenericType(outerType, innerType);
+        var ctor = joinResultType.GetConstructors()[0];
+
+        var newResultSelector = Expression.Lambda(
+            Expression.New(ctor, resultSelector.Parameters[0], resultSelector.Parameters[1]),
+            resultSelector.Parameters);
+
+        var newMethod = call.Method.GetGenericMethodDefinition()
+            .MakeGenericMethod(outerType, innerType, genericArgs[2], joinResultType);
+
+        var newArgs = call.Arguments.ToArray();
+        newArgs[0] = outerSource;
+        newArgs[4] = Expression.Quote(newResultSelector);
+
+        return Expression.Call(null, newMethod, newArgs);
     }
 
     private static MethodCallExpression ApplyAsSerializer(
@@ -257,10 +366,6 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
             case MethodCallExpression methodCallExpression
                 when methodCallExpression.IsVectorSearch():
                 return ProcessVectorSearch(methodCallExpression);
-
-            case MethodCallExpression methodCallExpression
-                when IsLeftJoinMethod(methodCallExpression):
-                return RewriteLeftJoinAsGroupJoin(methodCallExpression);
 
             case MethodCallExpression methodCallExpression:
                 return VisitMethodCall(methodCallExpression);
@@ -434,178 +539,9 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
     }
 
     /// <summary>
-    /// For Include queries, EF generates: First(Select(LeftJoin(Orders, Customers, ...), selector))
-    /// We need to strip the Select+LeftJoin and keep just the terminal operation on the base source.
-    /// E.g., First(Select(LeftJoin(Orders, Customers, ...), selector)) -> First(Orders)
+    /// Appends $lookup stages for cross-collection collection Includes.
+    /// Uses the same AppendStage pattern as VectorSearch.
     /// </summary>
-    /// <summary>
-    /// For Include queries, strip the Join+Select chain from the expression and return
-    /// just the base source. The $lookup stages appended later handle the join.
-    /// Handles patterns like:
-    ///   Select(LeftJoin(Source, ...), selector) -> Source
-    ///   First(Select(LeftJoin(Source, ...), selector)) -> First(Source)
-    ///   Where(Select(LeftJoin(Source, ...), selector), pred) -> Source (pred stripped, $match from $lookup)
-    /// </summary>
-    private static Expression? StripJoinForLookup(Expression expression)
-    {
-        if (expression is not MethodCallExpression outerCall)
-        {
-            return null;
-        }
-
-        // If the outermost call IS the Select/Join chain itself, just return the base source
-        var baseSource = FindBaseSourceThroughJoin(outerCall);
-        if (baseSource != null && IsJoinRelatedMethod(outerCall))
-        {
-            return baseSource;
-        }
-
-        // Otherwise, the outermost call is a terminal op (First, etc.) wrapping the join chain
-        var source = outerCall.Arguments[0];
-        baseSource = FindBaseSourceThroughJoin(source);
-        if (baseSource == null)
-        {
-            return null;
-        }
-
-        // Replace the source argument with the base source
-        var newArgs = outerCall.Arguments.ToArray();
-        newArgs[0] = baseSource;
-
-        // Re-create the terminal operation with the correct generic type
-        var method = outerCall.Method;
-        if (method.IsGenericMethod)
-        {
-            var baseItemType = baseSource.Type.TryGetItemType();
-            if (baseItemType != null)
-            {
-                var genericDef = method.GetGenericMethodDefinition();
-                var genericParams = genericDef.GetGenericArguments();
-                if (genericParams.Length == 1)
-                {
-                    method = genericDef.MakeGenericMethod(baseItemType);
-                }
-            }
-        }
-
-        return Expression.Call(null, method, newArgs);
-    }
-
-    private static bool IsJoinRelatedMethod(MethodCallExpression call)
-        => call.Method.Name is "Select" or "LeftJoin" or "Join" or "GroupJoin" or "SelectMany" or "Where";
-
-    private static Expression? FindBaseSourceThroughJoin(Expression expression)
-    {
-        if (expression is not MethodCallExpression call)
-        {
-            return null;
-        }
-
-        // Select(source, selector) where source contains a Join
-        if (call.Method.Name == "Select" && call.Arguments.Count >= 2)
-        {
-            return FindBaseSourceThroughJoin(call.Arguments[0]);
-        }
-
-        // LeftJoin(outer, inner, ...) or Join(outer, inner, ...) or GroupJoin(...)
-        // Recurse into the outer source to handle nested joins (multi-level Include).
-        if (call.Method.Name is "LeftJoin" or "Join" or "GroupJoin")
-        {
-            return FindBaseSourceThroughJoin(call.Arguments[0]) ?? call.Arguments[0];
-        }
-
-        // SelectMany(source, ...) - part of GroupJoin+SelectMany pattern
-        if (call.Method.Name == "SelectMany")
-        {
-            return FindBaseSourceThroughJoin(call.Arguments[0]);
-        }
-
-        // Where(source, predicate) - filter that may sit between Select and Join
-        if (call.Method.Name == "Where" && call.Arguments.Count >= 2)
-        {
-            return FindBaseSourceThroughJoin(call.Arguments[0]);
-        }
-
-        return null;
-    }
-
-    private static bool IsLeftJoinMethod(MethodCallExpression methodCallExpression)
-    {
-        var method = methodCallExpression.Method;
-        return method.IsGenericMethod
-               && method.Name == "LeftJoin"
-               && method.DeclaringType == typeof(Queryable);
-    }
-
-    /// <summary>
-    /// Rewrites Queryable.LeftJoin into Queryable.GroupJoin + SelectMany + DefaultIfEmpty,
-    /// which the MongoDB driver's LINQ3 provider can translate to $lookup.
-    /// LeftJoin(outer, inner, outerKey, innerKey, (o,i) => result)
-    /// becomes:
-    /// GroupJoin(outer, inner, outerKey, innerKey, (o, group) => new { o, group })
-    ///     .SelectMany(x => x.group.DefaultIfEmpty(), (x, i) => resultSelector(x.o, i))
-    /// </summary>
-    private Expression RewriteLeftJoinAsGroupJoin(MethodCallExpression leftJoinCall)
-    {
-        var outerSource = Visit(leftJoinCall.Arguments[0])!;
-        var innerSource = Visit(leftJoinCall.Arguments[1])!;
-        var outerKeySelector = Visit(leftJoinCall.Arguments[2])!;
-        var innerKeySelector = Visit(leftJoinCall.Arguments[3])!;
-        var resultSelector = (LambdaExpression)leftJoinCall.Arguments[4].UnwrapLambdaFromQuote();
-
-        var outerType = outerSource.Type.TryGetItemType()!;
-        var innerType = innerSource.Type.TryGetItemType()!;
-        var innerEnumerableType = typeof(IEnumerable<>).MakeGenericType(innerType);
-
-        // Get the key type from the outer key selector lambda
-        var outerKeySelectorLambda = outerKeySelector is UnaryExpression { NodeType: ExpressionType.Quote } quote
-            ? (LambdaExpression)quote.Operand
-            : (LambdaExpression)outerKeySelector;
-        var keyType = outerKeySelectorLambda.ReturnType;
-
-        // Build GroupJoin: (o, group) => new { Outer = o, Group = group }
-        var outerParam = Expression.Parameter(outerType, "o");
-        var groupParam = Expression.Parameter(innerEnumerableType, "group");
-        var anonType = typeof(LeftJoinIntermediate<,>).MakeGenericType(outerType, innerType);
-        var anonCtor = anonType.GetConstructors()[0];
-        var groupJoinSelector = Expression.Lambda(
-            Expression.New(anonCtor, outerParam, groupParam),
-            outerParam, groupParam);
-
-        var groupJoinMethod = QueryableMethods.GroupJoin
-            .MakeGenericMethod(outerType, innerType, keyType, anonType);
-
-        var groupJoinCall = Expression.Call(null, groupJoinMethod,
-            outerSource, innerSource, outerKeySelector, innerKeySelector,
-            Expression.Quote(groupJoinSelector));
-
-        // Build SelectMany: x => x.Group.DefaultIfEmpty()
-        var xParam = Expression.Parameter(anonType, "x");
-        var groupAccess = Expression.Property(xParam, "Group");
-        var defaultIfEmptyMethod = typeof(Enumerable).GetMethods()
-            .First(m => m.Name == "DefaultIfEmpty" && m.GetParameters().Length == 1)
-            .MakeGenericMethod(innerType);
-        var defaultIfEmptyCall = Expression.Call(null, defaultIfEmptyMethod, groupAccess);
-        var collectionSelector = Expression.Lambda(defaultIfEmptyCall, xParam);
-
-        // Build result selector: (x, i) => originalResultSelector(x.Outer, i)
-        var iParam = Expression.Parameter(innerType, "i");
-        var xParam2 = Expression.Parameter(anonType, "x");
-        var outerAccess = Expression.Property(xParam2, "Outer");
-        var resultBody = new ReplacingExpressionVisitor(
-            [resultSelector.Parameters[0], resultSelector.Parameters[1]],
-            [outerAccess, iParam]).Visit(resultSelector.Body);
-        var selectManyResultSelector = Expression.Lambda(resultBody, xParam2, iParam);
-
-        var selectManyMethod = QueryableMethods.SelectManyWithCollectionSelector
-            .MakeGenericMethod(anonType, innerType, resultSelector.Body.Type);
-
-        return Expression.Call(null, selectManyMethod,
-            groupJoinCall,
-            Expression.Quote(collectionSelector),
-            Expression.Quote(selectManyResultSelector));
-    }
-
     private Expression AppendLookupStages(Expression query)
     {
         if (_pendingLookups.Count == 0)
@@ -613,7 +549,7 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
             return query;
         }
 
-        var sourceType = _source.Type.TryGetItemType()!;
+        var sourceType = query.Type.TryGetItemType() ?? _source.Type.TryGetItemType()!;
         var appendStageMethod = typeof(MongoQueryable).GetMethod(nameof(MongoQueryable.AppendStage))!
             .MakeGenericMethod(sourceType, sourceType);
         var serializerType = typeof(IBsonSerializer<>).MakeGenericType(sourceType);

@@ -175,18 +175,10 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
                             }' is not supported.");
                     }
 
-                    if (!includableNavigation.IsEmbedded())
+                    if (!includableNavigation.IsEmbedded() && includableNavigation.IsCollection)
                     {
                         _queryExpression.AddLookup(new LookupExpression(includableNavigation));
-
-                        if (includableNavigation.IsCollection)
-                        {
-                            // For cross-collection collection Include, replace the navigation
-                            // expression with a CollectionShaperExpression that reads from the
-                            // $lookup array result field, bypassing the subquery that references
-                            // the other DbSet.
-                            return RewriteCollectionIncludeForLookup(includeExpression, includableNavigation);
-                        }
+                        return RewriteCollectionIncludeForLookup(includeExpression, includableNavigation);
                     }
 
                     _includedNavigations.Push(includableNavigation);
@@ -548,19 +540,16 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
 
     /// <summary>
     /// For cross-collection collection Include (e.g., Customer.Include(c => c.Orders)),
-    /// we can't visit the subquery-based NavigationExpression. Instead, build an
-    /// IncludeExpression with a CollectionShaperExpression that reads from the $lookup array.
+    /// build an IncludeExpression with a CollectionShaperExpression that reads from the $lookup array.
+    /// The $lookup stage is appended via AppendLookupStages in the LINQ translator.
     /// </summary>
     private Expression RewriteCollectionIncludeForLookup(
         IncludeExpression includeExpression,
         INavigation navigation)
     {
-        // Visit the entity expression (the Customer) normally
         _includedNavigations.Push(navigation);
         var visitedEntity = Visit(includeExpression.EntityExpression);
 
-        // Build the collection navigation expression from the $lookup array field.
-        // Get the outer entity projection to use as parent access.
         EntityProjectionExpression outerEntityProjection;
         if (visitedEntity is StructuralTypeShaperExpression shaper
             && shaper.ValueBufferExpression is ProjectionBindingExpression binding
@@ -571,9 +560,7 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
         else
         {
             _includedNavigations.Pop();
-            // Fall back to default processing
-            var fallback = base.VisitExtension(includeExpression);
-            return fallback;
+            return base.VisitExtension(includeExpression);
         }
 
         var lookupAlias = $"_lookup_{navigation.Name}";
@@ -593,12 +580,9 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
             navigation,
             innerShaperExpression.StructuralType.ClrType);
 
-        // Add the collection to the projection
         _queryExpression.AddToProjection(objectArrayProjection);
-
         _includedNavigations.Pop();
 
-        // Re-create the IncludeExpression with the rewritten navigation
         return includeExpression.Update(visitedEntity, collectionShaper);
     }
 

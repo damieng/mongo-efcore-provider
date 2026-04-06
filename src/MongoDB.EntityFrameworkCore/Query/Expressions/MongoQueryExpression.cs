@@ -90,17 +90,21 @@ internal sealed class MongoQueryExpression : Expression
         => _projection;
 
     /// <summary>
-    /// The list of pending $lookup stages needed for cross-collection Include operations.
+    /// Pending $lookup stages for cross-collection collection Include operations.
     /// </summary>
     public IReadOnlyList<LookupExpression> PendingLookups
         => _pendingLookups;
 
     /// <summary>
-    /// Register a $lookup stage for a cross-collection navigation Include.
+    /// Register a $lookup stage for a cross-collection collection Include.
     /// </summary>
-    /// <param name="lookup">The <see cref="LookupExpression"/> describing the $lookup.</param>
     public void AddLookup(LookupExpression lookup)
-        => _pendingLookups.Add(lookup);
+    {
+        if (!_pendingLookups.Any(l => l.As == lookup.As))
+        {
+            _pendingLookups.Add(lookup);
+        }
+    }
 
     /// <summary>
     /// Inner collections involved in join operations.
@@ -112,6 +116,7 @@ internal sealed class MongoQueryExpression : Expression
     /// Whether this query involves join operations across multiple collections.
     /// </summary>
     public bool IsJoinQuery => _innerCollections.Count > 0;
+
 
     /// <summary>
     /// Register an inner collection for a join operation.

@@ -13,21 +13,23 @@
  * limitations under the License.
  */
 
-using System.Collections.Generic;
-
 namespace MongoDB.EntityFrameworkCore.Query;
 
 /// <summary>
-/// Intermediate type used to rewrite LeftJoin as GroupJoin + SelectMany + DefaultIfEmpty.
+/// Result type for LeftJoin that matches the MongoDB driver's join field naming convention.
+/// The driver's Join/LeftJoin translators produce documents with "_outer" and "_inner" fields.
+/// Using matching property names ensures the driver's $project stage preserves these field names.
 /// </summary>
-internal class LeftJoinIntermediate<TOuter, TInner>
+internal class LeftJoinResult<TOuter, TInner>
 {
-    public LeftJoinIntermediate(TOuter outer, IEnumerable<TInner> group)
-    {
-        Outer = outer;
-        Group = group;
-    }
+    // ReSharper disable InconsistentNaming
+    public TOuter _outer { get; set; }
+    public TInner _inner { get; set; }
+    // ReSharper restore InconsistentNaming
 
-    public TOuter Outer { get; }
-    public IEnumerable<TInner> Group { get; }
+    public LeftJoinResult(TOuter _outer, TInner _inner)
+    {
+        this._outer = _outer;
+        this._inner = _inner;
+    }
 }

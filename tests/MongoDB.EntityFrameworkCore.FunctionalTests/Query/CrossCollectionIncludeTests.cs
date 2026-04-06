@@ -174,6 +174,29 @@ public class CrossCollectionIncludeTests(TemporaryDatabaseFixture database)
     }
 
     [Fact]
+    public void Include_multiple_navigations_on_same_entity()
+    {
+        var (ordersCollection, customersCollection) = SetupOrdersAndCustomers();
+
+        using var db = new OrderCustomerDbContext(database, ordersCollection, customersCollection);
+
+        // Include both reference (Customer) and then get customer's Orders (collection)
+        var order = db.Orders
+            .Include(o => o.Customer)
+            .First();
+
+        Assert.NotNull(order.Customer);
+
+        // Now test customer with collection include
+        var customer = db.Customers
+            .Include(c => c.Orders)
+            .First(c => c.FullName == "Alice");
+
+        Assert.NotNull(customer.Orders);
+        Assert.Equal(2, customer.Orders.Count);
+    }
+
+    [Fact]
     public void Include_multi_level_materializes_nested_entities()
     {
         var (ordersCollection, customersCollection) = SetupOrdersAndCustomers();

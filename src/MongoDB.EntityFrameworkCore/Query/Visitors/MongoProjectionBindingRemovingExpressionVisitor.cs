@@ -212,11 +212,21 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
 
                         switch (accessExpression)
                         {
+                            case ObjectAccessExpression { Name: "_inner" } when _queryExpression.IsJoinQuery:
+                                // For join queries, _inner is at root level in the BsonDocument.
+                                innerAccessExpression = DocParameter;
+                                fieldRequired = false;
+                                break;
                             case ObjectAccessExpression innerObjectAccessExpression:
                                 innerAccessExpression = innerObjectAccessExpression.AccessExpression;
                                 _ownerMappings[accessExpression] =
                                     (innerObjectAccessExpression.Navigation.DeclaringEntityType, innerAccessExpression);
                                 fieldRequired = innerObjectAccessExpression.Required;
+                                break;
+                            case RootReferenceExpression when _queryExpression.IsJoinQuery:
+                                // For join queries, the outer entity is under "_outer".
+                                innerAccessExpression = DocParameter;
+                                fieldName = "_outer";
                                 break;
                             case RootReferenceExpression:
                                 innerAccessExpression = DocParameter;
@@ -423,7 +433,13 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
         {
             innerExpression = docExpression switch
             {
+                // For join queries, the outer entity is under "_outer" in the BsonDocument.
+                RootReferenceExpression when _queryExpression.IsJoinQuery
+                    => CreateGetValueExpression(DocParameter, "_outer", required, typeof(BsonDocument)),
                 RootReferenceExpression => CreateGetValueExpression(DocParameter, null, required, typeof(BsonDocument)),
+                // For join queries, _inner is at the root of the BsonDocument, not inside _outer.
+                ObjectAccessExpression { Name: "_inner" } when _queryExpression.IsJoinQuery
+                    => CreateGetValueExpression(DocParameter, "_inner", required, typeof(BsonDocument)),
                 ObjectAccessExpression docAccessExpression => CreateGetValueExpression(docAccessExpression.AccessExpression,
                     docAccessExpression.Name, required, typeof(BsonDocument)),
                 _ => innerExpression
