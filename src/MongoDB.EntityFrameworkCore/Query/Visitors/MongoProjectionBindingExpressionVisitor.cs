@@ -25,6 +25,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
+using MongoDB.Bson;
 using MongoDB.EntityFrameworkCore.Extensions;
 using MongoDB.EntityFrameworkCore.Query.Expressions;
 
@@ -200,6 +201,10 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
                             }
                         }
 
+                        if (includeExpression.NavigationExpression is MaterializeCollectionNavigationExpression materialize)
+                        {
+                            ExtractFilteredIncludePipeline(materialize.Subquery, lookup, includableNavigation.TargetEntityType);
+                        }
                         _queryExpression.AddLookup(lookup);
                         return RewriteCollectionIncludeForLookup(includeExpression, includableNavigation);
                     }
@@ -607,6 +612,102 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
         _includedNavigations.Pop();
 
         return includeExpression.Update(visitedEntity, collectionShaper);
+    }
+
+    /// <summary>
+    /// Extract filtered Include operations (OrderBy, Skip, Take) from the navigation expression
+    /// and add them as pipeline stages to the LookupExpression.
+    /// </summary>
+    private static void ExtractFilteredIncludePipeline(
+        Expression navigationExpression,
+        LookupExpression lookup,
+        IEntityType targetEntityType)
+    {
+        // Walk from the outermost call inward, collecting stages in reverse order.
+        var stages = new List<BsonDocument>();
+        var current = navigationExpression;
+
+        while (current is MethodCallExpression methodCall)
+        {
+            var methodName = methodCall.Method.Name;
+            switch (methodName)
+            {
+                case "OrderBy" or "ThenBy":
+                    stages.Add(new BsonDocument("$sort", new BsonDocument(GetSortField(methodCall, targetEntityType), 1)));
+                    current = methodCall.Arguments[0];
+                    break;
+
+                case "OrderByDescending" or "ThenByDescending":
+                    stages.Add(new BsonDocument("$sort", new BsonDocument(GetSortField(methodCall, targetEntityType), -1)));
+                    current = methodCall.Arguments[0];
+                    break;
+
+                case "Skip":
+                    if (methodCall.Arguments[1] is ConstantExpression skipConst)
+                    {
+                        stages.Add(new BsonDocument("$skip", (int)skipConst.Value!));
+                    }
+                    current = methodCall.Arguments[0];
+                    break;
+
+                case "Take":
+                    if (methodCall.Arguments[1] is ConstantExpression takeConst)
+                    {
+                        stages.Add(new BsonDocument("$limit", (int)takeConst.Value!));
+                    }
+                    current = methodCall.Arguments[0];
+                    break;
+
+                case "Where":
+                    // The Where clause is the join condition, already handled by the $lookup $match.
+                    current = methodCall.Arguments[0];
+                    break;
+
+                default:
+                    // Hit the base (EntityQueryRootExpression or similar) — stop.
+                    current = null;
+                    break;
+            }
+        }
+
+        // Stages were collected outermost-first; reverse so they execute in the right order.
+        stages.Reverse();
+        lookup.PipelineStages.AddRange(stages);
+    }
+
+    /// <summary>
+    /// Extract the sort field name from an OrderBy/OrderByDescending method call.
+    /// </summary>
+    private static string GetSortField(MethodCallExpression orderByCall, IEntityType entityType)
+    {
+        // The key selector is the second argument: e.g., o => o.OrderID
+        var keySelector = orderByCall.Arguments[1];
+        while (keySelector is UnaryExpression { NodeType: ExpressionType.Quote } quote)
+        {
+            keySelector = quote.Operand;
+        }
+
+        if (keySelector is LambdaExpression lambda)
+        {
+            var body = lambda.Body;
+            while (body is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } convert)
+            {
+                body = convert.Operand;
+            }
+
+            if (body is MemberExpression memberExpression)
+            {
+                var property = entityType.FindProperty(memberExpression.Member.Name);
+                if (property != null)
+                {
+                    return Microsoft.EntityFrameworkCore.MongoPropertyExtensions.GetElementName(property);
+                }
+
+                return memberExpression.Member.Name;
+            }
+        }
+
+        return "_id";
     }
 
     private ProjectionMember GetCurrentProjectionMember()

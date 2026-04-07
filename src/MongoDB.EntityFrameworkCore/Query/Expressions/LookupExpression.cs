@@ -13,8 +13,10 @@
  * limitations under the License.
  */
 
+using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
+using MongoDB.Bson;
 using MongoDB.EntityFrameworkCore.Extensions;
 
 namespace MongoDB.EntityFrameworkCore.Query.Expressions;
@@ -90,6 +92,16 @@ internal sealed class LookupExpression
 
         return elementName;
     }
+
+    /// <summary>
+    /// Pipeline stages to apply inside the $lookup for filtered Includes
+    /// (e.g., OrderBy, Skip, Take on the included collection).
+    /// When non-empty, the pipeline form of $lookup is used instead of localField/foreignField.
+    /// </summary>
+    public List<BsonDocument> PipelineStages { get; } = [];
+
+    /// <summary>Whether this lookup uses a pipeline (filtered Include).</summary>
+    public bool HasPipeline => PipelineStages.Count > 0;
 
     /// <summary>Whether this lookup is for a single reference (not a collection).</summary>
     public bool IsReference => !Navigation.IsCollection;
