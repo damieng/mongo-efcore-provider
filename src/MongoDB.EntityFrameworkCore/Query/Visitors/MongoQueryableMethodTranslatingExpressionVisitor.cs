@@ -418,12 +418,54 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
         navigation ??= outerEntityType.GetNavigations()
             .FirstOrDefault(n => n.TargetEntityType == innerEntityType);
 
-        // Use "_inner" to match the driver's Join pipeline field naming.
-        // The driver's $lookup + $unwind produces documents with _outer and _inner fields.
-        outerQueryExpression.UsesDriverJoinFields = true;
-        Expression parentAccess = new RootReferenceExpression(outerEntityType);
-        var lookupAlias = "_inner";
+        // Use "_inner" for the first LeftJoin to match the driver's Join pipeline.
+        // For subsequent LeftJoins, register ALL as $lookup + $unwind to keep the
+        // document flat (avoid nested _outer._outer depths).
+        string lookupAlias;
+        if (!outerQueryExpression.UsesDriverJoinFields)
+        {
+            outerQueryExpression.UsesDriverJoinFields = true;
+            lookupAlias = "_inner";
+        }
+        else
+        {
+            lookupAlias = navigation != null ? $"_lookup_{navigation.Name}" : $"_lookup_{innerEntityType.ShortName()}";
 
+            // Register all joins (including the first) as $lookup + $unwind.
+            // Also register the first join's navigation so it becomes a $lookup too.
+            if (navigation != null)
+            {
+                outerQueryExpression.AddLookup(new Expressions.LookupExpression(navigation, forceUnwind: true));
+            }
+
+            // Also register the FIRST join's navigation as a $lookup and update its projection alias
+            var firstInnerEntityType = outerQueryExpression.InnerCollections.Keys.First();
+            var firstNavigation = outerEntityType.GetNavigations()
+                .FirstOrDefault(n => n.TargetEntityType == firstInnerEntityType);
+            if (firstNavigation != null)
+            {
+                outerQueryExpression.AddLookup(new Expressions.LookupExpression(firstNavigation, forceUnwind: true));
+
+                // Update the first join's projection from "_inner" to "_lookup_*"
+                var firstLookupAlias = $"_lookup_{firstNavigation.Name}";
+                var rootAccess = new RootReferenceExpression(outerEntityType);
+                var firstAccessExpr = new ObjectAccessExpression(firstNavigation, rootAccess, false, firstLookupAlias);
+                var firstProjection = new EntityProjectionExpression(firstInnerEntityType, firstAccessExpr);
+                for (var i = 0; i < outerQueryExpression.Projection.Count; i++)
+                {
+                    if (outerQueryExpression.Projection[i].Alias == "_inner")
+                    {
+                        outerQueryExpression.ReplaceProjectionAt(i, firstProjection);
+                        break;
+                    }
+                }
+            }
+
+            // Switch off driver LeftJoin — all joins are now $lookup
+            outerQueryExpression.UsesDriverJoinFields = false;
+        }
+
+        Expression parentAccess = new RootReferenceExpression(outerEntityType);
         ObjectAccessExpression lookupAccessExpression = navigation != null
             ? new ObjectAccessExpression(navigation, parentAccess, false, lookupAlias)
             : new ObjectAccessExpression(innerEntityType, parentAccess, false, lookupAlias);
