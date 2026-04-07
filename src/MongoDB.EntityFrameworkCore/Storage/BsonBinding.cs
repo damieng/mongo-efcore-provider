@@ -86,7 +86,7 @@ internal static class BsonBinding
         throw new InvalidOperationException(CoreStrings.PropertyNotFound(name, declaredType.DisplayName()));
     }
 
-    private static MethodCallExpression CreateGetBsonArray(Expression bsonDocExpression, string name)
+    internal static MethodCallExpression CreateGetBsonArray(Expression bsonDocExpression, string name)
         => Expression.Call(null, GetBsonArrayMethodInfo, bsonDocExpression, Expression.Constant(name));
 
     private static readonly MethodInfo GetBsonArrayMethodInfo

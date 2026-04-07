@@ -252,24 +252,55 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
 
         var resultSelectorQuoted = call.Arguments[4];
         var resultSelector = resultSelectorQuoted.UnwrapLambdaFromQuote();
-        var outerType = resultSelector.Parameters[0].Type;
         var innerType = resultSelector.Parameters[1].Type;
+
+        // When the outer source was rewritten, its element type changed from
+        // TransparentIdentifier to LeftJoinResult. Use the actual source element type.
+        var outerType = outerSource.Type.TryGetItemType() ?? resultSelector.Parameters[0].Type;
 
         var joinResultType = typeof(LeftJoinResult<,>).MakeGenericType(outerType, innerType);
         var ctor = joinResultType.GetConstructors()[0];
 
+        // Rebuild the result selector with the correct outer parameter type
+        var newOuterParam = Expression.Parameter(outerType, resultSelector.Parameters[0].Name);
+        var newInnerParam = resultSelector.Parameters[1];
         var newResultSelector = Expression.Lambda(
-            Expression.New(ctor, resultSelector.Parameters[0], resultSelector.Parameters[1]),
-            resultSelector.Parameters);
+            Expression.New(ctor, newOuterParam, newInnerParam),
+            newOuterParam, newInnerParam);
 
         var newMethod = call.Method.GetGenericMethodDefinition()
             .MakeGenericMethod(outerType, innerType, genericArgs[2], joinResultType);
 
         var newArgs = call.Arguments.ToArray();
         newArgs[0] = outerSource;
+        // Also rewrite key selectors that reference the outer type
+        if (outerSource != call.Arguments[0])
+        {
+            newArgs[2] = RewriteKeySelectorForNewOuterType(call.Arguments[2], resultSelector.Parameters[0], newOuterParam);
+        }
         newArgs[4] = Expression.Quote(newResultSelector);
 
         return Expression.Call(null, newMethod, newArgs);
+    }
+
+    /// <summary>
+    /// Rewrite a key selector expression when the outer source type changed from TransparentIdentifier
+    /// to LeftJoinResult due to nested join rewriting.
+    /// </summary>
+    private static Expression RewriteKeySelectorForNewOuterType(
+        Expression keySelectorArg,
+        ParameterExpression oldParam,
+        ParameterExpression newParam)
+    {
+        // Unwrap Quote if present, but keep it as-is if it's not a Quote wrapping a lambda
+        if (keySelectorArg is UnaryExpression { NodeType: ExpressionType.Quote } quote
+            && quote.Operand is LambdaExpression lambda)
+        {
+            var rewritten = RewriteLambdaForLeftJoinResult(lambda, newParam.Type);
+            return Expression.Quote(rewritten);
+        }
+
+        return keySelectorArg;
     }
 
     /// <summary>
@@ -297,22 +328,23 @@ internal sealed class MongoEFToLinqTranslatingExpressionVisitor : System.Linq.Ex
     {
         protected override Expression VisitMember(MemberExpression node)
         {
-            if (node.Expression == oldParam)
+            // Rewrite TransparentIdentifier field accesses (Outer/Inner) to LeftJoinResult
+            // property accesses (_outer/_inner). Check by member declaring type since the
+            // expression may be a parameter, another field access, or any rewritten expression.
+            if (node.Member.Name is "Outer" or "Inner"
+                && node.Member.DeclaringType is { IsGenericType: true } dt
+                && dt.Name.StartsWith("TransparentIdentifier"))
             {
-                var propertyName = node.Member.Name switch
-                {
-                    "Outer" => "_outer",
-                    "Inner" => "_inner",
-                    _ => node.Member.Name
-                };
-                return Expression.Property(newParam, propertyName);
+                var visitedExpression = Visit(node.Expression!);
+                var propertyName = node.Member.Name == "Outer" ? "_outer" : "_inner";
+                return Expression.Property(visitedExpression, propertyName);
             }
 
             return base.VisitMember(node);
         }
 
         protected override Expression VisitParameter(ParameterExpression node)
-            => node == oldParam ? newParam : base.VisitParameter(node);
+            => node.Type == oldParam.Type ? newParam : base.VisitParameter(node);
     }
 
     /// <summary>

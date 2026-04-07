@@ -201,10 +201,9 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
                             }
                         }
 
-                        if (includeExpression.NavigationExpression is MaterializeCollectionNavigationExpression materialize)
-                        {
-                            ExtractFilteredIncludePipeline(materialize.Subquery, lookup, includableNavigation.TargetEntityType);
-                        }
+                        // Extract filtered Include pipeline stages (OrderBy, Skip, Take)
+                        // and nested ThenInclude $lookups from the NavigationExpression.
+                        ExtractNestedIncludePipeline(includeExpression.NavigationExpression, lookup, includableNavigation.TargetEntityType);
                         _queryExpression.AddLookup(lookup);
                         return RewriteCollectionIncludeForLookup(includeExpression, includableNavigation);
                     }
@@ -595,18 +594,24 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
         var objectArrayProjection = new ObjectArrayProjectionExpression(
             navigation, outerEntityProjection.ParentAccessExpression, lookupAlias);
 
-        var innerShaperExpression = new StructuralTypeShaperExpression(
+        Expression innerShaperExpression = new StructuralTypeShaperExpression(
             navigation.TargetEntityType,
             Expression.Convert(
                 Expression.Convert(objectArrayProjection.InnerProjection, typeof(object)),
                 typeof(ValueBuffer)),
             nullable: true);
 
+        // For ThenInclude on collection-then-collection paths, wrap the inner shaper
+        // with IncludeExpressions for nested collections so the binding remover
+        // processes them when iterating each parent document.
+        innerShaperExpression = WrapWithNestedCollectionIncludes(
+            includeExpression.NavigationExpression, innerShaperExpression, objectArrayProjection);
+
         var collectionShaper = new CollectionShaperExpression(
             objectArrayProjection,
             innerShaperExpression,
             navigation,
-            innerShaperExpression.StructuralType.ClrType);
+            navigation.TargetEntityType.ClrType);
 
         _queryExpression.AddToProjection(objectArrayProjection);
         _includedNavigations.Pop();
@@ -615,7 +620,115 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
     }
 
     /// <summary>
-    /// Extract filtered Include operations (OrderBy, Skip, Take) from the navigation expression
+    /// Process the NavigationExpression of an Include, extracting:
+    /// - Nested ThenInclude $lookups (added as pipeline stages on the parent lookup)
+    /// - Filtered Include operations (OrderBy, Skip, Take)
+    /// </summary>
+    private static void ExtractNestedIncludePipeline(
+        Expression navigationExpression,
+        LookupExpression parentLookup,
+        IEntityType targetEntityType)
+    {
+        // Unwrap nested IncludeExpressions (ThenInclude on collections)
+        while (navigationExpression is IncludeExpression nestedInclude
+               && nestedInclude.Navigation is INavigation nestedNav
+               && !nestedNav.IsEmbedded() && nestedNav.IsCollection)
+        {
+            var nestedLookup = new LookupExpression(nestedNav);
+            // Recurse for deeper nesting
+            ExtractNestedIncludePipeline(nestedInclude.NavigationExpression, nestedLookup, nestedNav.TargetEntityType);
+
+            parentLookup.PipelineStages.Add(new BsonDocument("$lookup", new BsonDocument
+            {
+                { "from", nestedLookup.From },
+                { "localField", nestedLookup.LocalField },
+                { "foreignField", nestedLookup.ForeignField },
+                { "as", nestedLookup.As }
+            }));
+
+            // Continue with the entity expression (which may have more wrapping)
+            navigationExpression = nestedInclude.EntityExpression;
+        }
+
+        // Extract filtered Include operations and nested ThenIncludes from MaterializeCollectionNavigation subquery
+        if (navigationExpression is MaterializeCollectionNavigationExpression materialize)
+        {
+            var subquery = materialize.Subquery;
+            ExtractFilteredIncludePipeline(subquery, parentLookup, targetEntityType);
+
+            // Check for ThenInclude inside Select(source, o => Include(o, nestedNav, ...))
+            ExtractThenIncludesFromSubquery(subquery, parentLookup);
+        }
+    }
+
+    /// <summary>
+    /// Look for IncludeExpressions inside a Select lambda of a collection Include subquery.
+    /// These represent ThenInclude on collection-then-collection paths.
+    /// </summary>
+    private static void ExtractThenIncludesFromSubquery(Expression subquery, LookupExpression parentLookup)
+    {
+        // The subquery is Select(Where(source, pred), o => Include(o, nav, navExpr))
+        if (subquery is not MethodCallExpression { Method.Name: "Select" } selectCall)
+            return;
+
+        var selectorArg = selectCall.Arguments[1];
+        while (selectorArg is UnaryExpression { NodeType: ExpressionType.Quote } quote)
+            selectorArg = quote.Operand;
+
+        if (selectorArg is not LambdaExpression { Body: IncludeExpression includeExpr })
+            return;
+
+        // Walk nested IncludeExpressions
+        var current = (Expression)includeExpr;
+        while (current is IncludeExpression nested
+               && nested.Navigation is INavigation nav
+               && !nav.IsEmbedded() && nav.IsCollection)
+        {
+            var nestedLookup = new LookupExpression(nav);
+
+            // Check for deeper nesting inside this ThenInclude's NavigationExpression
+            if (nested.NavigationExpression is MaterializeCollectionNavigationExpression innerMaterialize)
+            {
+                ExtractThenIncludesFromSubquery(innerMaterialize.Subquery, nestedLookup);
+                ExtractFilteredIncludePipeline(innerMaterialize.Subquery, nestedLookup, nav.TargetEntityType);
+            }
+
+            var nestedLookupDoc = new BsonDocument("$lookup", new BsonDocument
+            {
+                { "from", nestedLookup.From },
+                { "localField", nestedLookup.LocalField },
+                { "foreignField", nestedLookup.ForeignField },
+                { "as", nestedLookup.As }
+            });
+
+            if (nestedLookup.HasPipeline)
+            {
+                // Use pipeline form for nested lookups with their own stages
+                var pipeline = new BsonArray
+                {
+                    new BsonDocument("$match",
+                        new BsonDocument("$expr",
+                            new BsonDocument("$eq", new BsonArray { $"${nestedLookup.ForeignField}", "$$localField" })))
+                };
+                foreach (var stage in nestedLookup.PipelineStages)
+                    pipeline.Add(stage);
+
+                nestedLookupDoc = new BsonDocument("$lookup", new BsonDocument
+                {
+                    { "from", nestedLookup.From },
+                    { "let", new BsonDocument("localField", $"${nestedLookup.LocalField}") },
+                    { "pipeline", pipeline },
+                    { "as", nestedLookup.As }
+                });
+            }
+
+            parentLookup.PipelineStages.Add(nestedLookupDoc);
+            current = nested.EntityExpression;
+        }
+    }
+
+    /// <summary>
+    /// Extract filtered Include operations (OrderBy, Skip, Take) from a subquery expression
     /// and add them as pipeline stages to the LookupExpression.
     /// </summary>
     private static void ExtractFilteredIncludePipeline(
@@ -708,6 +821,79 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
         }
 
         return "_id";
+    }
+
+    /// <summary>
+    /// For ThenInclude on collection-then-collection paths, extract the nested IncludeExpressions
+    /// from the subquery's Select lambda and wrap them around the inner shaper so the shaper
+    /// reads the nested $lookup arrays from each parent document.
+    /// </summary>
+    private Expression WrapWithNestedCollectionIncludes(
+        Expression navigationExpression,
+        Expression innerShaper,
+        ObjectArrayProjectionExpression parentArrayProjection)
+    {
+        if (navigationExpression is not MaterializeCollectionNavigationExpression materialize)
+            return innerShaper;
+
+        // Look for Select(source, o => Include(o, nav, navExpr))
+        if (materialize.Subquery is not MethodCallExpression { Method.Name: "Select" } selectCall)
+            return innerShaper;
+
+        var selectorArg = selectCall.Arguments[1];
+        while (selectorArg is UnaryExpression { NodeType: ExpressionType.Quote } quote)
+            selectorArg = quote.Operand;
+
+        if (selectorArg is not LambdaExpression lambda)
+            return innerShaper;
+
+        // Collect nested IncludeExpressions from the lambda body
+        var includes = new List<IncludeExpression>();
+        var body = lambda.Body;
+        while (body is IncludeExpression include)
+        {
+            includes.Add(include);
+            body = include.EntityExpression;
+        }
+
+        if (includes.Count == 0)
+            return innerShaper;
+
+        // Wrap the inner shaper with Include expressions (innermost first)
+        var result = innerShaper;
+        for (var i = includes.Count - 1; i >= 0; i--)
+        {
+            var include = includes[i];
+            if (include.Navigation is INavigation nav && !nav.IsEmbedded() && nav.IsCollection)
+            {
+                // Build a CollectionShaperExpression for this nested collection Include
+                var nestedLookupAlias = $"_lookup_{nav.Name}";
+                var nestedArrayProjection = new ObjectArrayProjectionExpression(
+                    nav, parentArrayProjection.InnerProjection.ParentAccessExpression, nestedLookupAlias, null);
+
+                var nestedInnerShaper = new StructuralTypeShaperExpression(
+                    nav.TargetEntityType,
+                    Expression.Convert(
+                        Expression.Convert(nestedArrayProjection.InnerProjection, typeof(object)),
+                        typeof(ValueBuffer)),
+                    nullable: true);
+
+                var nestedCollectionShaper = new CollectionShaperExpression(
+                    nestedArrayProjection,
+                    nestedInnerShaper,
+                    nav,
+                    nav.TargetEntityType.ClrType);
+
+                result = new IncludeExpression(result, nestedCollectionShaper, nav, include.SetLoaded);
+            }
+            else if (include.Navigation is INavigation refNav && !refNav.IsEmbedded())
+            {
+                // Reference ThenInclude — wrap with IncludeExpression for the reference
+                result = new IncludeExpression(result, Visit(include.NavigationExpression), refNav, include.SetLoaded);
+            }
+        }
+
+        return result;
     }
 
     private ProjectionMember GetCurrentProjectionMember()
