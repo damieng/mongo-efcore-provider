@@ -42,14 +42,14 @@ internal sealed class LookupExpression
         if (navigation.IsOnDependent)
         {
             // e.g., Order.Customer where FK (CustomerId) is on Order
-            LocalField = foreignKey.Properties[0].GetElementName();
-            ForeignField = foreignKey.PrincipalKey.Properties[0].GetElementName();
+            LocalField = GetFieldPath(foreignKey.Properties[0]);
+            ForeignField = GetFieldPath(foreignKey.PrincipalKey.Properties[0]);
         }
         else
         {
             // e.g., Customer.Orders where FK (CustomerId) is on Order
-            LocalField = foreignKey.PrincipalKey.Properties[0].GetElementName();
-            ForeignField = foreignKey.Properties[0].GetElementName();
+            LocalField = GetFieldPath(foreignKey.PrincipalKey.Properties[0]);
+            ForeignField = GetFieldPath(foreignKey.Properties[0]);
         }
 
         As = $"_lookup_{navigation.Name}";
@@ -69,6 +69,27 @@ internal sealed class LookupExpression
 
     /// <summary>The output array field name in the resulting document.</summary>
     public string As { get; set; }
+
+    /// <summary>
+    /// Get the full MongoDB field path for a property, accounting for composite keys
+    /// stored under the _id document.
+    /// </summary>
+    private static string GetFieldPath(IReadOnlyProperty property)
+    {
+        var elementName = property.GetElementName();
+
+        // For properties that are part of a composite primary key, they are stored nested
+        // under _id (e.g., { _id: { OrderID: 10248, ProductID: 11 } }).
+        // The element name alone won't match — we need the full path _id.OrderID.
+        if (property.IsPrimaryKey()
+            && property.DeclaringType is IEntityType entityType
+            && entityType.FindPrimaryKey()?.Properties.Count > 1)
+        {
+            return $"_id.{elementName}";
+        }
+
+        return elementName;
+    }
 
     /// <summary>Whether this lookup is for a single reference (not a collection).</summary>
     public bool IsReference => !Navigation.IsCollection;
