@@ -177,7 +177,20 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
 
                     if (!includableNavigation.IsEmbedded() && includableNavigation.IsCollection)
                     {
-                        _queryExpression.AddLookup(new LookupExpression(includableNavigation));
+                        var lookup = new LookupExpression(includableNavigation);
+
+                        // For multi-level Include where the declaring entity is a cross-collection
+                        // reference (handled by LeftJoin producing _outer/_inner), the $lookup
+                        // localField must be prefixed to reference the inner sub-document.
+                        var declaringType = includableNavigation.DeclaringEntityType;
+                        var rootType = _queryExpression.CollectionExpression.EntityType;
+                        if (declaringType != rootType && !declaringType.IsOwned())
+                        {
+                            lookup.LocalField = $"_inner.{lookup.LocalField}";
+                            lookup.As = $"_inner.{lookup.As}";
+                        }
+
+                        _queryExpression.AddLookup(lookup);
                         return RewriteCollectionIncludeForLookup(includeExpression, includableNavigation);
                     }
 

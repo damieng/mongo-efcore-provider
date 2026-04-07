@@ -62,13 +62,13 @@ internal sealed class LookupExpression
     public string From { get; }
 
     /// <summary>The field on the local document to match.</summary>
-    public string LocalField { get; }
+    public string LocalField { get; set; }
 
     /// <summary>The field on the foreign document to match.</summary>
     public string ForeignField { get; }
 
     /// <summary>The output array field name in the resulting document.</summary>
-    public string As { get; }
+    public string As { get; set; }
 
     /// <summary>Whether this lookup is for a single reference (not a collection).</summary>
     public bool IsReference => !Navigation.IsCollection;

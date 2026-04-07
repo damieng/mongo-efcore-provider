@@ -175,11 +175,12 @@ Employees.
 
     public override void Precedence_of_tracking_modifiers3()
     {
-        // Fails: Cross-document navigation access issue EF-216
-        AssertTranslationFailed(() => base.Precedence_of_tracking_modifiers3());
+        base.Precedence_of_tracking_modifiers3();
 
         AssertMql(
-);
+            """
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_outer._id" : "ALFKI" } }
+""");
     }
 
     public override void Can_disable_and_reenable_query_result_tracking_starting_with_NoTracking()
