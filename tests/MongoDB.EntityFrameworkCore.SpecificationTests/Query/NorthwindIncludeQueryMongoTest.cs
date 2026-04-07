@@ -17,6 +17,8 @@ using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.TestUtilities;
 using Xunit.Sdk;
 
+using static MongoDB.EntityFrameworkCore.SpecificationTests.Utilities.MongoAssert;
+
 namespace MongoDB.EntityFrameworkCore.SpecificationTests.Query;
 
 public class NorthwindIncludeQueryMongoTest : NorthwindIncludeQueryTestBase<
@@ -94,11 +96,7 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$lookup" : { "from" : "Orders",
 
     public override async Task Include_collection_order_by_collection_column(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_order_by_collection_column(async)))
-            .Message);
+        await AssertUnsupportedCrossDbSetQuery(() => base.Include_collection_order_by_collection_column(async));
 
         AssertMql(
         );
@@ -916,7 +914,7 @@ Orders.{ "$match" : { "CustomerID" : "ALFKI" } }, { "$project" : { "_outer" : "$
 
     public override async Task Include_collection_order_by_subquery(bool async)
     {
-        await base.Include_collection_order_by_subquery(async);
+        await AssertUnsupportedCrossDbSetQuery(() => base.Include_collection_order_by_subquery(async));
 
         AssertMql(
         );
@@ -933,11 +931,7 @@ Orders.{ "$match" : { "CustomerID" : { "$regularExpression" : { "pattern" : "^F"
 
     public override async Task Then_include_collection_order_by_collection_column(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                base.Then_include_collection_order_by_collection_column(async))).Message);
+        await AssertUnsupportedCrossDbSetQuery(() => base.Then_include_collection_order_by_collection_column(async));
 
         AssertMql(
         );

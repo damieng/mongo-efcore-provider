@@ -17,6 +17,8 @@ using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.TestUtilities;
 using Xunit.Sdk;
 
+using static MongoDB.EntityFrameworkCore.SpecificationTests.Utilities.MongoAssert;
+
 namespace MongoDB.EntityFrameworkCore.SpecificationTests.Query;
 
 public class NorthwindStringIncludeQueryMongoTest : NorthwindStringIncludeQueryTestBase<
@@ -97,11 +99,7 @@ Customers.{ "$match" : { "_id" : "ALFKI" } }, { "$lookup" : { "from" : "Orders",
 
     public override async Task Include_collection_order_by_collection_column(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Include_collection_order_by_collection_column(async)))
-            .Message);
+        await AssertUnsupportedCrossDbSetQuery(() => base.Include_collection_order_by_collection_column(async));
 
         AssertMql(
         );
@@ -271,7 +269,7 @@ Customers.{ "$match" : { "_id" : "ALFKI ?" } }, { "$lookup" : { "from" : "Orders
 
         AssertMql(
             """
-Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : { "path" : "$_inner", "preserveNullAndEmptyArrays" : true } }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_outer._id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : { "path" : "$_inner", "preserveNullAndEmptyArrays" : true } }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_outer._id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_outer._lookup_Orders" } }
 """);
     }
 
@@ -326,7 +324,7 @@ Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "o
 
         AssertMql(
             """
-Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_outer._id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_outer._id" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_outer._lookup_Orders" } }
 """);
     }
 
@@ -393,7 +391,7 @@ Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "o
 
         AssertMql(
             """
-Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_outer._id" : "ALFKI" } }, { "$sort" : { "_outer.City" : 1 } }, { "$lookup" : { "from" : "Orders", "localField" : "_id", "foreignField" : "CustomerID", "as" : "_lookup_Orders" } }
+Customers.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_inner" } }, { "$unwind" : "$_inner" }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "_outer._id" : "ALFKI" } }, { "$sort" : { "_outer.City" : 1 } }, { "$lookup" : { "from" : "Orders", "localField" : "_outer._id", "foreignField" : "CustomerID", "as" : "_outer._lookup_Orders" } }
 """);
     }
 
@@ -831,7 +829,7 @@ Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "o
 
         AssertMql(
             """
-Orders.{ "$match" : { "CustomerID" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Customers", "localField" : "_outer.CustomerID", "foreignField" : "_id", "as" : "_inner" } }, { "$unwind" : { "path" : "$_inner", "preserveNullAndEmptyArrays" : true } }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$lookup" : { "from" : "OrderDetails", "localField" : "_id", "foreignField" : "OrderID", "as" : "_lookup_OrderDetails" } }
+Orders.{ "$match" : { "CustomerID" : { "$regularExpression" : { "pattern" : "^F", "options" : "s" } } } }, { "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Customers", "localField" : "_outer.CustomerID", "foreignField" : "_id", "as" : "_inner" } }, { "$unwind" : { "path" : "$_inner", "preserveNullAndEmptyArrays" : true } }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$lookup" : { "from" : "OrderDetails", "localField" : "_outer._id", "foreignField" : "_id.OrderID", "as" : "_outer._lookup_OrderDetails" } }
 """);
     }
 
@@ -913,7 +911,7 @@ Orders.{ "$match" : { "CustomerID" : "ALFKI" } }, { "$project" : { "_outer" : "$
 
     public override async Task Include_collection_order_by_subquery(bool async)
     {
-        await base.Include_collection_order_by_subquery(async);
+        await AssertUnsupportedCrossDbSetQuery(() => base.Include_collection_order_by_subquery(async));
 
         AssertMql(
         );
@@ -930,11 +928,7 @@ Orders.{ "$match" : { "CustomerID" : { "$regularExpression" : { "pattern" : "^F"
 
     public override async Task Then_include_collection_order_by_collection_column(bool async)
     {
-        // Fails: Include issue EF-117
-        Assert.Contains(
-            "Including navigation 'Navigation' is not supported",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                base.Then_include_collection_order_by_collection_column(async))).Message);
+        await AssertUnsupportedCrossDbSetQuery(() => base.Then_include_collection_order_by_collection_column(async));
 
         AssertMql(
         );
@@ -1098,8 +1092,7 @@ Customers.{ "$match" : { "_id" : { "$regularExpression" : { "pattern" : "^F", "o
         AssertMql();
     }
 
-
-    protected new static async Task AssertTranslationFailed(Func<Task> query)
+    protected static new async Task AssertTranslationFailed(Func<Task> query)
     {
         try
         {

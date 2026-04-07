@@ -182,12 +182,22 @@ internal sealed class MongoProjectionBindingExpressionVisitor : ExpressionVisito
                         // For multi-level Include where the declaring entity is a cross-collection
                         // reference (handled by LeftJoin producing _outer/_inner), the $lookup
                         // localField must be prefixed to reference the inner sub-document.
-                        var declaringType = includableNavigation.DeclaringEntityType;
-                        var rootType = _queryExpression.CollectionExpression.EntityType;
-                        if (declaringType != rootType && !declaringType.IsOwned())
+                        // When a LeftJoin restructures the document (_outer/_inner),
+                        // $lookup fields must be prefixed with the correct sub-document path.
+                        if (_queryExpression.UsesDriverJoinFields)
                         {
-                            lookup.LocalField = $"_inner.{lookup.LocalField}";
-                            lookup.As = $"_inner.{lookup.As}";
+                            var declaringType = includableNavigation.DeclaringEntityType;
+                            var rootType = _queryExpression.CollectionExpression.EntityType;
+                            if (declaringType == rootType || declaringType.IsOwned())
+                            {
+                                lookup.LocalField = $"_outer.{lookup.LocalField}";
+                                lookup.As = $"_outer.{lookup.As}";
+                            }
+                            else
+                            {
+                                lookup.LocalField = $"_inner.{lookup.LocalField}";
+                                lookup.As = $"_inner.{lookup.As}";
+                            }
                         }
 
                         _queryExpression.AddLookup(lookup);
