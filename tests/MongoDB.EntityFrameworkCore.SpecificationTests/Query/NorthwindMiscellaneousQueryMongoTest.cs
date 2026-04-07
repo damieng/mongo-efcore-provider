@@ -4942,11 +4942,12 @@ Customers.
 
     public override async Task Contains_over_concatenated_columns_both_fixed_length(bool async)
     {
-        // Fails: Cross-document navigation access issue EF-216
-        await AssertTranslationFailed(() => base.Contains_over_concatenated_columns_both_fixed_length(async));
+        await base.Contains_over_concatenated_columns_both_fixed_length(async);
 
         AssertMql(
-        );
+            """
+Orders.{ "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Customers", "localField" : "_outer.CustomerID", "foreignField" : "_id", "as" : "_inner" } }, { "$unwind" : { "path" : "$_inner", "preserveNullAndEmptyArrays" : true } }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }, { "$match" : { "$expr" : { "$in" : [{ "$concat" : ["$_outer.CustomerID", "$_inner._id"] }, ["ALFKIALFKI", "ALFKI", "ANATRAna Trujillo Emparedados y helados", "ANATRANATR"]] } } }
+""");
     }
 
     public override async Task Contains_over_concatenated_column_and_parameter(bool async)

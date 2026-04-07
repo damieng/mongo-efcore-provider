@@ -206,7 +206,10 @@ Customers.{ "$sort" : { "_id" : 1 } }, { "$match" : { "_id" : { "$regularExpress
     public override async Task Projection_of_multiple_entity_types_into_object_array(bool async)
     {
         await base.Projection_of_multiple_entity_types_into_object_array(async);
-        AssertMql();
+        AssertMql(
+            """
+Orders.{ "$sort" : { "_id" : 1 } }, { "$match" : { "_id" : { "$lt" : 10300 } } }, { "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Customers", "localField" : "_outer.CustomerID", "foreignField" : "_id", "as" : "_inner" } }, { "$unwind" : { "path" : "$_inner", "preserveNullAndEmptyArrays" : true } }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }
+""");
     }
 
     public override async Task Projection_of_entity_type_into_object_list(bool async)
@@ -1127,7 +1130,7 @@ Orders.{ "$sort" : { "CustomerID" : 1 } }, { "$project" : { "_outer" : "$$ROOT",
         await base.Select_entity_compared_to_null(async);
         AssertMql(
             """
-Orders.{ "$match" : { "CustomerID" : "ALFKI" } }, { "$lookup" : { "from" : "Customers", "localField" : "CustomerID", "foreignField" : "_id", "as" : "_lookup_Customer" } }, { "$unwind" : { "path" : "$_lookup_Customer", "preserveNullAndEmptyArrays" : true } }
+Orders.{ "$match" : { "CustomerID" : "ALFKI" } }, { "$project" : { "_outer" : "$$ROOT", "_id" : 0 } }, { "$lookup" : { "from" : "Customers", "localField" : "_outer.CustomerID", "foreignField" : "_id", "as" : "_inner" } }, { "$unwind" : { "path" : "$_inner", "preserveNullAndEmptyArrays" : true } }, { "$project" : { "_outer" : "$_outer", "_inner" : "$_inner", "_id" : 0 } }
 """);
     }
 
