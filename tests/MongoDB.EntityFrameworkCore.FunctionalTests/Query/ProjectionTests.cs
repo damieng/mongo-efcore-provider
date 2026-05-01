@@ -1166,6 +1166,67 @@ public class ProjectionTests(ReadOnlySampleGuidesFixture database)
         Assert.Equal("Mercury", result);
     }
 
+    [Fact]
+    public void Select_member_init_alias_collides_with_different_root_property()
+    {
+        // Reproduces a pre-existing aliasing bug in MongoProjectionBindingRemovingExpressionVisitor.
+        //
+        // For MemberInit projections like `new Planet { name = <computed> }`, the projection
+        // visitor uses the binding member name ("name") as the projection alias. During shaper
+        // compilation, BsonBinding.CreateGetValueExpression(doc, "name", ..., int /*mappedType*/, Planet)
+        // looks up Planet.FindProperty("name") — finds the real Planet.name (a string), reads its
+        // IsNullable flag, and applies that nullability to the value being read (which is actually
+        // p.orderFromSun, an int). The downstream int.ToString() call then receives a Nullable<int>
+        // instead of an int and throws:
+        //
+        //   System.ArgumentException : Method 'System.String ToString()' declared on type
+        //   'System.Int32' cannot be called with instance of type 'System.Nullable`1[System.Int32]'
+        //
+        // Same root cause produces the EF-250 spec-test PropertyNotFound failure when the alias
+        // matches no EF property at all (e.g., Order.ShipName which the EF Northwind model
+        // deliberately omits). With a different alias/property combination the read could
+        // silently return the wrong nullability with no exception.
+        var results = _db.Planets
+            .OrderBy(p => p.orderFromSun)
+            .Select(p => new Planet { name = p.orderFromSun.ToString() })
+            .ToList();
+
+        Assert.Equal(8, results.Count);
+        Assert.Equal("1", results[0].name);
+    }
+
+    [Fact]
+    public void Select_member_init_alias_collides_silently_compatible_types()
+    {
+        // Same alias-as-property bug, compatible types: alias "name" (string) collides with
+        // Planet.name (also string). Pre-fix this would silently apply the wrong property's
+        // serializer/nullability; post-fix the source property (Planet.hasRings → string via
+        // ToString) drives the read.
+        var results = _db.Planets
+            .OrderBy(p => p.orderFromSun)
+            .Select(p => new Planet { name = p.hasRings.ToString() })
+            .ToList();
+
+        Assert.Equal(8, results.Count);
+        Assert.Equal("False", results[0].name); // Mercury has no rings
+        Assert.Contains(results, r => r.name == "True");
+        Assert.Contains(results, r => r.name == "False");
+    }
+
+    [Fact]
+    public void Select_member_init_with_constant_value_uses_element_fallback()
+    {
+        // No source IProperty resolvable from the projection expression — exercises the
+        // CreateGetElementValue fallback path in MongoProjectionBindingRemovingExpressionVisitor.
+        var results = _db.Planets
+            .OrderBy(p => p.orderFromSun)
+            .Select(p => new NamedContainer<int> { Name = "constant" })
+            .ToList();
+
+        Assert.Equal(8, results.Count);
+        Assert.All(results, r => Assert.Equal("constant", r.Name));
+    }
+
     public void Dispose()
         => _db.Dispose();
 

@@ -135,6 +135,27 @@ internal static class BsonBinding
     internal static MethodCallExpression CreateGetElementValue(Expression bsonDocExpression, string name, Type type) =>
         Expression.Call(null, GetElementValueMethodInfo.MakeGenericMethod(type), bsonDocExpression, Expression.Constant(name));
 
+    /// <summary>
+    /// Read the value of <paramref name="sourceProperty"/> from a projected <see cref="BsonDocument"/>, but at an
+    /// explicit element key (the projection alias). Used when push-down emits the value under a synthetic output
+    /// field name (e.g. from <c>new Entity { Foo = computedExpr }</c>) so the field key in the document differs
+    /// from the property's natural name, but we still need the property's value-converting serializer and
+    /// nullability semantics.
+    /// </summary>
+    internal static MethodCallExpression CreateGetValueExpression(
+        Expression bsonDocExpression,
+        string elementKey,
+        IReadOnlyProperty sourceProperty,
+        Type mappedType)
+    {
+        var resultType = sourceProperty.IsNullable ? mappedType.MakeNullable() : mappedType;
+        return Expression.Call(null,
+            GetPropertyValueAtElementMethodInfo.MakeGenericMethod(resultType),
+            bsonDocExpression,
+            Expression.Constant(sourceProperty),
+            Expression.Constant(elementKey));
+    }
+
     private static readonly MethodInfo GetPropertyValueMethodInfo
         = typeof(BsonBinding).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
             .Single(mi => mi.Name == nameof(GetPropertyValue));
@@ -142,6 +163,10 @@ internal static class BsonBinding
     private static readonly MethodInfo GetElementValueMethodInfo
         = typeof(BsonBinding).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
             .Single(mi => mi.Name == nameof(GetElementValue));
+
+    private static readonly MethodInfo GetPropertyValueAtElementMethodInfo
+        = typeof(BsonBinding).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Single(mi => mi.Name == nameof(GetPropertyValueAtElement));
 
     internal static T? GetPropertyValue<T>(BsonDocument document, IReadOnlyProperty property)
     {
@@ -160,6 +185,27 @@ internal static class BsonBinding
         if (property.IsNullable) return default;
 
         throw new InvalidOperationException($"Document element is missing for required non-nullable property '{property.Name}'.");
+    }
+
+    internal static T? GetPropertyValueAtElement<T>(BsonDocument document, IReadOnlyProperty property, string elementName)
+    {
+        var propertyInfo = BsonSerializerFactory.GetPropertySerializationInfo(property);
+        var aliasedInfo = new BsonSerializationInfo(elementName, propertyInfo.Serializer, propertyInfo.NominalType);
+        if (TryReadElementValue(document, aliasedInfo, out T? value))
+        {
+            if (value == null && !property.IsNullable)
+            {
+                throw new InvalidOperationException(
+                    $"Document element '{elementName}' is null for required non-nullable property '{property.Name}'.");
+            }
+
+            return value;
+        }
+
+        if (property.IsNullable) return default;
+
+        throw new InvalidOperationException(
+            $"Document element '{elementName}' is missing for required non-nullable property '{property.Name}'.");
     }
 
     internal static T? GetElementValue<T>(BsonDocument document, string elementName)

@@ -39,7 +39,7 @@ namespace MongoDB.EntityFrameworkCore.Query.Visitors;
 internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisitor
 {
     private readonly MongoQueryExpression _queryExpression;
-    private readonly IEntityType _rootEntityType;
+    protected readonly IEntityType _rootEntityType;
     private readonly ParameterExpression DocParameter;
     private readonly bool _trackQueryResults;
     private readonly Dictionary<ParameterExpression, Expression> _materializationContextBindings = new();
@@ -78,10 +78,32 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
                 {
                     var projection = GetProjection(projectionBindingExpression);
 
-                    return CreateGetValueExpression(
+                    // Alias is null for projections whose expression has no natural name (the
+                    // pre-existing degenerate case): the BsonDoc itself is the value.
+                    if (projection.Alias is null)
+                    {
+                        return DocParameter;
+                    }
+
+                    // The alias is the BsonDoc field key emitted by push-down (often a free-form
+                    // output name from `new Entity { Member = computed }`). Resolve the source
+                    // IProperty from the projection's underlying expression so we apply its
+                    // serializer / nullability — not whatever EF property happens to share the
+                    // alias name on the root entity.
+                    var (sourceProperty, _) = TryResolveFieldAccess(projection.Expression);
+                    if (sourceProperty != null)
+                    {
+                        return BsonBinding.CreateGetValueExpression(
+                            DocParameter,
+                            projection.Alias,
+                            sourceProperty,
+                            projectionBindingExpression.Type);
+                    }
+
+                    // No source property (constants, arithmetic, etc.) — read raw element by alias.
+                    return BsonBinding.CreateGetElementValue(
                         DocParameter,
                         projection.Alias,
-                        !projectionBindingExpression.Type.IsNullableType(),
                         projectionBindingExpression.Type);
                 }
 
@@ -688,4 +710,45 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
             ? _queryExpression.GetMappedProjection(projectionBindingExpression.ProjectionMember).GetConstantValue<int>()
             : projectionBindingExpression.Index
               ?? throw new InvalidOperationException("Internal error - projection mapping has neither member nor index.");
+
+    /// <summary>
+    /// Attempts to resolve an <see cref="IProperty"/> and/or field name from a projection expression that
+    /// represents a scalar property access on the entity (e.g., <c>p.name</c>) or a non-model field
+    /// access (e.g., <c>Mql.Field(e, "__score", null)</c>).
+    /// </summary>
+    protected (IProperty? property, string? fieldName) TryResolveFieldAccess(Expression expression)
+    {
+        // Unwrap converts
+        while (expression is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } unary)
+        {
+            expression = unary.Operand;
+        }
+
+        if (expression is MemberExpression memberExpression)
+        {
+            var property = _rootEntityType.FindProperty(memberExpression.Member);
+            return (property, property != null ? null : memberExpression.Member.Name);
+        }
+
+        if (expression is MethodCallExpression methodCall)
+        {
+            // Handle EF.Property<T>(entity, "propertyName") method calls
+            if (methodCall.Method.IsEFPropertyMethod()
+                && methodCall.Arguments[1] is ConstantExpression { Value: string propertyName })
+            {
+                var property = _rootEntityType.FindProperty(propertyName);
+                return (property, property != null ? null : propertyName);
+            }
+
+            // Handle Mql.Field<TDoc, TField>(entity, "fieldName", serializer) calls
+            if (methodCall.Method is { Name: "Field", DeclaringType.FullName: "MongoDB.Driver.Mql" }
+                && methodCall.Arguments[1] is ConstantExpression { Value: string fieldName })
+            {
+                var property = _rootEntityType.FindProperty(fieldName);
+                return (property, property != null ? null : fieldName);
+            }
+        }
+
+        return (null, null);
+    }
 }

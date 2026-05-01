@@ -2445,139 +2445,66 @@ Orders.{ "$match" : { "$expr" : { "$eq" : [{ "$bitXor" : ["$_id", 1] }, 10249] }
     }
 
     public override async Task Select_expression_long_to_string(bool async)
-    {
-        // Fails: Client eval in final projection EF-250
-        Assert.Contains(
-            "The property 'Order.ShipName' could not be found.",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Select_expression_long_to_string(async))).Message);
-
-        AssertMql(
-        );
-    }
+        => await base.Select_expression_long_to_string(async);
 
     public override async Task Select_expression_int_to_string(bool async)
-    {
-        // Fails: Client eval in final projection EF-250
-        Assert.Contains(
-            "The property 'Order.ShipName' could not be found.",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Select_expression_int_to_string(async))).Message);
-
-        AssertMql(
-        );
-    }
+        => await base.Select_expression_int_to_string(async);
 
     public override async Task ToString_with_formatter_is_evaluated_on_the_client(bool async)
     {
-        // Fails: Client eval in final projection EF-250
+        // Separate untranslatable-method issue: the MongoDB driver does not translate the
+        // formatter overloads of int.ToString (e.g. ToString("X")). Same family as EF-250's
+        // _over_string tests — would need the same routing-through-mixed-path treatment to
+        // client-evaluate. Out of scope for the alias-resolution fix.
         Assert.Contains(
-            "The property 'Order.ShipName' could not be found.",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            "Expression not supported: o.OrderID.ToString(",
+            (await Assert.ThrowsAsync<MongoDB.Driver.Linq.ExpressionNotSupportedException>(() =>
                 base.ToString_with_formatter_is_evaluated_on_the_client(async))).Message);
-
-        AssertMql(
-        );
     }
 
     public override async Task Select_expression_other_to_string(bool async)
-    {
-        // Fails: Client eval in final projection EF-250
-        Assert.Contains(
-            "The property 'Order.ShipName' could not be found.",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() => base.Select_expression_other_to_string(async))).Message);
+        => await base.Select_expression_other_to_string(async);
 
-        AssertMql(
-        );
-    }
+    // The Select_expression_*_add_* placeholders below all hit the same separate driver/shaper
+    // coordination bug exposed by the alias-resolution fix: the driver translates the date
+    // arithmetic server-side AND the shaper re-applies it client-side, producing values that are
+    // doubly-incremented (and Z-suffixed UTC kind that doesn't round-trip). Pre-fix these tests
+    // threw an incidental ArgumentException at shaper-compile time because the alias bug typed
+    // `o.OrderDate.Value` as Nullable<DateTime>; that path no longer fires, so the underlying
+    // double-application bug is now visible. Out of scope for the alias-resolution fix.
 
     public override async Task Select_expression_date_add_year(bool async)
-    {
-        // Fails: Unsupported by driver
-        Assert.Contains(
-            "DateTime",
-            (await Assert.ThrowsAsync<ArgumentException>(() => base.Select_expression_date_add_year(async))).Message);
-
-        AssertMql(
-        );
-    }
+        => await Assert.ThrowsAsync<Xunit.Sdk.EqualException>(() => base.Select_expression_date_add_year(async));
 
     public override async Task Select_expression_datetime_add_month(bool async)
-    {
-        // Fails: Unsupported by driver
-        Assert.Contains(
-            "DateTime",
-            (await Assert.ThrowsAsync<ArgumentException>(() => base.Select_expression_datetime_add_month(async))).Message);
-
-        AssertMql(
-        );
-    }
+        => await Assert.ThrowsAsync<Xunit.Sdk.EqualException>(() => base.Select_expression_datetime_add_month(async));
 
     public override async Task Select_expression_datetime_add_hour(bool async)
-    {
-        // Fails: Unsupported by driver
-        Assert.Contains(
-            "DateTime",
-            (await Assert.ThrowsAsync<ArgumentException>(() => base.Select_expression_datetime_add_hour(async))).Message);
-
-        AssertMql(
-        );
-    }
+        => await Assert.ThrowsAsync<Xunit.Sdk.EqualException>(() => base.Select_expression_datetime_add_hour(async));
 
     public override async Task Select_expression_datetime_add_minute(bool async)
-    {
-        // Fails: Unsupported by driver
-        Assert.Contains(
-            "DateTime",
-            (await Assert.ThrowsAsync<ArgumentException>(() => base.Select_expression_datetime_add_minute(async))).Message);
-
-        AssertMql(
-        );
-    }
+        => await Assert.ThrowsAsync<Xunit.Sdk.EqualException>(() => base.Select_expression_datetime_add_minute(async));
 
     public override async Task Select_expression_datetime_add_second(bool async)
-    {
-        // Fails: Unsupported by driver
-        Assert.Contains(
-            "DateTime",
-            (await Assert.ThrowsAsync<ArgumentException>(() => base.Select_expression_datetime_add_second(async))).Message);
-
-        AssertMql(
-        );
-    }
+        => await Assert.ThrowsAsync<Xunit.Sdk.EqualException>(() => base.Select_expression_datetime_add_second(async));
 
     public override async Task Select_expression_date_add_milliseconds_above_the_range(bool async)
-    {
-        // Fails: Unsupported by driver
-        Assert.Contains(
-            "DateTime",
-            (await Assert.ThrowsAsync<ArgumentException>(() => base.Select_expression_date_add_milliseconds_above_the_range(async)))
-            .Message);
-
-        AssertMql(
-        );
-    }
+        => await Assert.ThrowsAsync<Xunit.Sdk.EqualException>(
+            () => base.Select_expression_date_add_milliseconds_above_the_range(async));
 
     public override async Task Select_expression_date_add_milliseconds_below_the_range(bool async)
-    {
-        // Fails: Unsupported by driver
-        Assert.Contains(
-            "DateTime",
-            (await Assert.ThrowsAsync<ArgumentException>(() => base.Select_expression_date_add_milliseconds_below_the_range(async)))
-            .Message);
-
-        AssertMql(
-        );
-    }
+        => await Assert.ThrowsAsync<Xunit.Sdk.EqualException>(
+            () => base.Select_expression_date_add_milliseconds_below_the_range(async));
 
     public override async Task Select_expression_date_add_milliseconds_large_number_divided(bool async)
     {
-        // Fails: Unsupported by driver
+        // Fails: driver returns the raw DateTime field for `o.OrderDate.Value.Millisecond` instead
+        // of the int component, so deserialization throws. Separate driver-translation issue, not
+        // related to projection-alias resolution.
         Assert.Contains(
-            "Rewriting child expression",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            "Cannot deserialize a 'Int32' from BsonType 'DateTime'",
+            (await Assert.ThrowsAsync<FormatException>(() =>
                 base.Select_expression_date_add_milliseconds_large_number_divided(async))).Message);
-
-        AssertMql(
-        );
     }
 
     public override async Task Add_minutes_on_constant_value(bool async)
@@ -3524,16 +3451,7 @@ Orders.{ "$match" : { "$expr" : { "$eq" : [{ "$bitXor" : ["$_id", 1] }, 10249] }
     }
 
     public override async Task Convert_to_nullable_on_nullable_value_is_ignored(bool async)
-    {
-        // Fails: Not throwing expected translation failed exception from EF, but still throws
-        Assert.Contains(
-            "Rewriting child expression",
-            (await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                base.Convert_to_nullable_on_nullable_value_is_ignored(async))).Message);
-
-        AssertMql(
-        );
-    }
+        => await base.Convert_to_nullable_on_nullable_value_is_ignored(async);
 
     public override async Task Navigation_inside_interpolated_string_is_expanded(bool async)
     {
@@ -4280,15 +4198,9 @@ Customers.
     }
 
     public override async Task Select_expression_datetime_add_ticks(bool async)
-    {
-        // Fails: Unsupported by driver
-        Assert.Contains(
-            "DateTime",
-            (await Assert.ThrowsAsync<ArgumentException>(() => base.Select_expression_datetime_add_ticks(async))).Message);
-
-        AssertMql(
-        );
-    }
+        // Same separate driver/shaper double-application bug as the other Select_expression_*_add_*
+        // placeholders above — out of scope for the alias-resolution fix.
+        => await Assert.ThrowsAsync<Xunit.Sdk.EqualException>(() => base.Select_expression_datetime_add_ticks(async));
 
     public override async Task Where_subquery_expression_same_parametername(bool async)
     {
