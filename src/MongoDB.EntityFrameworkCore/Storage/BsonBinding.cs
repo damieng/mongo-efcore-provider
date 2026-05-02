@@ -132,7 +132,13 @@ internal static class BsonBinding
 
     private static BsonArray? GetBsonArray(BsonDocument document, string name)
     {
-        if (!document.TryGetValue(name, out var bsonValue)) return null;
+        if (name.Length == 0
+            || !document.TryGetValue(name, out var bsonValue)
+            && !document.TryGetValue(char.ToLowerInvariant(name[0]) + name[1..], out bsonValue)
+            && !document.TryGetValue(char.ToUpperInvariant(name[0]) + name[1..], out bsonValue))
+        {
+            return null;
+        }
 
         return bsonValue switch
         {

@@ -63,6 +63,16 @@ internal sealed class MongoMixedProjectionBindingRemovingExpressionVisitor
                 var fieldAccess = TryResolveFieldAccess(mappedExpression);
                 if (fieldAccess.Property != null)
                 {
+                    if (fieldAccess.DocumentExpression is ParameterExpression parameterExpression
+                        && fieldAccess.MemberInfo != null
+                        && fieldAccess.MemberInfo.DeclaringType?.IsAssignableFrom(parameterExpression.Type) == true)
+                    {
+                        var memberAccess = Expression.MakeMemberAccess(parameterExpression, fieldAccess.MemberInfo);
+                        return memberAccess.Type == projectionBindingExpression.Type
+                            ? memberAccess
+                            : Expression.Convert(memberAccess, projectionBindingExpression.Type);
+                    }
+
                     return CreateGetValueExpression(
                         fieldAccess.DocumentExpression ?? _docParameter,
                         fieldAccess.Property,

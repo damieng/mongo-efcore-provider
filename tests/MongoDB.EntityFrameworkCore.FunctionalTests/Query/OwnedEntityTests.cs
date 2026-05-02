@@ -459,7 +459,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
     }
 
     [Fact]
-    public void OwnedEntity_collection_with_bson_representation_uses_owned_property_serializer()
+    public void OwnedEntity_collection_projection_alias_with_bson_representation_uses_owned_property_serializer()
     {
         var collection = database.CreateCollection<PersonWithMultipleLocations>();
 
@@ -497,8 +497,22 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
 
         {
             using var dbContext = SingleEntityDbContext.Create(collection, modelBuilder);
-            Assert.True(dbContext.Entities
-                .Any(e => e._id == id && e.locations.Any(l => l.longitude == expectedLocations[1].longitude)));
+            var actual = dbContext.Entities
+                .AsNoTracking()
+                .Where(e => e._id == id)
+                .Select(e => new
+                {
+                    e.name,
+                    e.locations,
+                    Longitudes = e.locations
+                        .Select(l => new { Alias = l.longitude })
+                        .ToList()
+                })
+                .Single();
+
+            Assert.Equal("A", actual.name);
+            Assert.Equal(expectedLocations.Length, actual.locations.Count);
+            Assert.Equal(expectedLocations.Select(l => l.longitude), actual.Longitudes.Select(l => l.Alias));
         }
     }
 
