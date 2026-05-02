@@ -529,11 +529,46 @@ public class ProjectionTests(ReadOnlySampleGuidesFixture database)
         public bool hasRings { get; set; }
     }
 
+    private class PlanetWithStringOrder
+    {
+        public ObjectId _id { get; set; }
+        public string name { get; set; } = null!;
+        public int orderFromSun { get; set; }
+        public bool hasRings { get; set; }
+    }
+
     private SingleEntityDbContext<PlanetWithLongOrder> CreateLongOrderContext()
     {
         var collection = database.MongoDatabase.GetCollection<PlanetWithLongOrder>("planets");
         return SingleEntityDbContext.Create(collection, mb =>
             mb.Entity<PlanetWithLongOrder>().Property(e => e.orderFromSun).HasConversion<int>());
+    }
+
+    private SingleEntityDbContext<PlanetWithStringOrder> CreateStringOrderContext()
+    {
+        var collection = database.MongoDatabase.GetCollection<PlanetWithStringOrder>("planets");
+        return SingleEntityDbContext.Create(collection, mb =>
+            mb.Entity<PlanetWithStringOrder>().Property(e => e.orderFromSun).HasBsonRepresentation(BsonType.String));
+    }
+
+    [Fact]
+    public void Select_projection_alias_with_bson_representation_uses_source_property_serializer()
+    {
+        using var db = CreateStringOrderContext();
+        var results = db.Entities.Select(p => new { p.name, Position = p.orderFromSun }).ToList();
+
+        Assert.Equal(8, results.Count);
+        Assert.Contains(results, r => r.name == "Earth" && r.Position == 3);
+    }
+
+    [Fact]
+    public void Select_projection_alias_with_bson_representation_ef_property_uses_source_property_serializer()
+    {
+        using var db = CreateStringOrderContext();
+        var results = db.Entities.Select(p => new { p.name, Position = EF.Property<int>(p, "orderFromSun") }).ToList();
+
+        Assert.Equal(8, results.Count);
+        Assert.Contains(results, r => r.name == "Earth" && r.Position == 3);
     }
 
     [Fact]
