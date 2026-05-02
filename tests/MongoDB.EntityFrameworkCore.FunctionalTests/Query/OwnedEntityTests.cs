@@ -464,7 +464,11 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
         var collection = database.CreateCollection<PersonWithMultipleLocations>();
 
         var id = ObjectId.GenerateNewId();
-        var expectedLocation = new Location { latitude = 1.234m, longitude = 1.567m };
+        var expectedLocations = new[]
+        {
+            new Location { latitude = 1.234m, longitude = 1.567m },
+            new Location { latitude = 2.345m, longitude = 2.678m }
+        };
 
         var modelBuilder = (ModelBuilder mb) =>
         {
@@ -485,8 +489,8 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
             dbContext.Entities.Add(new PersonWithMultipleLocations
             {
                 _id = id,
-                name = Guid.NewGuid().ToString(),
-                locations = [expectedLocation]
+                name = "A",
+                locations = [.. expectedLocations]
             });
             dbContext.SaveChanges();
         }
@@ -494,7 +498,7 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
         {
             using var dbContext = SingleEntityDbContext.Create(collection, modelBuilder);
             Assert.True(dbContext.Entities
-                .Any(e => e._id == id && e.locations.Any(l => l.longitude == expectedLocation.longitude)));
+                .Any(e => e._id == id && e.locations.Any(l => l.longitude == expectedLocations[1].longitude)));
         }
     }
 

@@ -17,6 +17,7 @@ using Microsoft.EntityFrameworkCore;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
+using MongoDB.EntityFrameworkCore.Extensions;
 using MongoDB.EntityFrameworkCore.FunctionalTests.Entities.Guides;
 
 namespace MongoDB.EntityFrameworkCore.FunctionalTests.Query;
@@ -534,7 +535,6 @@ public class ProjectionTests(ReadOnlySampleGuidesFixture database)
         public ObjectId _id { get; set; }
         public string name { get; set; } = null!;
         public int orderFromSun { get; set; }
-        public bool hasRings { get; set; }
     }
 
     private SingleEntityDbContext<PlanetWithLongOrder> CreateLongOrderContext()
@@ -544,31 +544,54 @@ public class ProjectionTests(ReadOnlySampleGuidesFixture database)
             mb.Entity<PlanetWithLongOrder>().Property(e => e.orderFromSun).HasConversion<int>());
     }
 
-    private SingleEntityDbContext<PlanetWithStringOrder> CreateStringOrderContext()
+    private SingleEntityDbContext<PlanetWithStringOrder> CreateStringOrderContext(string collectionName)
     {
-        var collection = database.MongoDatabase.GetCollection<PlanetWithStringOrder>("planets");
-        return SingleEntityDbContext.Create(collection, mb =>
-            mb.Entity<PlanetWithStringOrder>().Property(e => e.orderFromSun).HasBsonRepresentation(BsonType.String));
+        database.MongoDatabase.CreateCollection(collectionName);
+        var collection = database.MongoDatabase.GetCollection<PlanetWithStringOrder>(collectionName);
+        var configureModel = (ModelBuilder mb) =>
+        {
+            mb.Entity<PlanetWithStringOrder>().Property(e => e.orderFromSun).HasBsonRepresentation(BsonType.String);
+        };
+
+        using (var db = SingleEntityDbContext.Create(collection, configureModel))
+        {
+            db.Entities.AddRange(
+                new PlanetWithStringOrder { _id = ObjectId.GenerateNewId(), name = "Mercury", orderFromSun = 1 },
+                new PlanetWithStringOrder { _id = ObjectId.GenerateNewId(), name = "Venus", orderFromSun = 2 });
+            db.SaveChanges();
+        }
+
+        return SingleEntityDbContext.Create(collection, configureModel);
     }
 
     [Fact]
     public void Select_projection_alias_with_bson_representation_uses_source_property_serializer()
     {
-        using var db = CreateStringOrderContext();
-        var results = db.Entities.Select(p => new { p.name, Position = p.orderFromSun }).ToList();
+        using var db = CreateStringOrderContext(
+            nameof(Select_projection_alias_with_bson_representation_uses_source_property_serializer));
+        var results = db.Entities
+            .OrderBy(p => p.orderFromSun)
+            .Select(p => new { Position = p.orderFromSun })
+            .ToList();
 
-        Assert.Equal(8, results.Count);
-        Assert.Contains(results, r => r.name == "Earth" && r.Position == 3);
+        Assert.Equal(2, results.Count);
+        Assert.Equal(1, results[0].Position);
+        Assert.Equal(2, results[1].Position);
     }
 
     [Fact]
     public void Select_projection_alias_with_bson_representation_ef_property_uses_source_property_serializer()
     {
-        using var db = CreateStringOrderContext();
-        var results = db.Entities.Select(p => new { p.name, Position = EF.Property<int>(p, "orderFromSun") }).ToList();
+        using var db = CreateStringOrderContext(
+            nameof(Select_projection_alias_with_bson_representation_ef_property_uses_source_property_serializer));
+        var results = db.Entities
+            .OrderBy(p => p.orderFromSun)
+            .Select(p => new { Position = EF.Property<int>(p, nameof(PlanetWithStringOrder.orderFromSun)) })
+            .ToList();
 
-        Assert.Equal(8, results.Count);
-        Assert.Contains(results, r => r.name == "Earth" && r.Position == 3);
+        Assert.Equal(2, results.Count);
+        Assert.Equal(1, results[0].Position);
+        Assert.Equal(2, results[1].Position);
     }
 
     [Fact]

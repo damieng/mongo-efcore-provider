@@ -111,29 +111,17 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
                     var jObjectParameter = Expression.Parameter(typeof(BsonDocument), bsonArray.Name + "Object");
                     var ordinalParameter = Expression.Parameter(typeof(int), bsonArray.Name + "Ordinal");
 
-                    BlockExpression innerShaper;
-                    using (PushBindingScope())
-                    {
-                        var accessExpression = objectArrayProjection.InnerProjection.ParentAccessExpression;
-                        BindProjection(accessExpression, jObjectParameter);
-                        BindOwner(
-                            accessExpression,
-                            objectArrayProjection.Navigation.DeclaringEntityType,
-                            objectArrayProjection.AccessExpression);
-                        BindOwner(
-                            jObjectParameter,
-                            objectArrayProjection.Navigation.DeclaringEntityType,
-                            objectArrayProjection.AccessExpression);
-                        BindOrdinal(
-                            accessExpression,
-                            Expression.Add(ordinalParameter, Expression.Constant(1, typeof(int))));
-                        BindOrdinal(
-                            jObjectParameter,
-                            Expression.Add(ordinalParameter, Expression.Constant(1, typeof(int))));
+                    var accessExpression = objectArrayProjection.InnerProjection.ParentAccessExpression;
+                    BindProjection(accessExpression, jObjectParameter);
+                    BindOwner(
+                        accessExpression,
+                        objectArrayProjection.Navigation.DeclaringEntityType,
+                        objectArrayProjection.AccessExpression);
+                    BindOrdinal(
+                        accessExpression,
+                        Expression.Add(ordinalParameter, Expression.Constant(1, typeof(int))));
 
-                        innerShaper = (BlockExpression)Visit(collectionShaperExpression.InnerShaper);
-                    }
-
+                    var innerShaper = (BlockExpression)Visit(collectionShaperExpression.InnerShaper);
                     innerShaper = AddIncludes(innerShaper);
 
                     var entities = Expression.Call(
@@ -241,29 +229,10 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
                                     accessExpression,
                                     innerObjectAccessExpression.Navigation.DeclaringEntityType,
                                     innerAccessExpression);
-                                BindOwner(
-                                    parameterExpression,
-                                    innerObjectAccessExpression.Navigation.DeclaringEntityType,
-                                    innerAccessExpression);
-                                if (TryGetOrdinalBinding(accessExpression, out var rootOrdinalExpression))
-                                {
-                                    BindOrdinal(parameterExpression, rootOrdinalExpression);
-                                }
-
                                 fieldRequired = innerObjectAccessExpression.Required;
                                 break;
-                            case RootReferenceExpression rootReferenceExpression:
-                                innerAccessExpression = rootReferenceExpression;
-                                if (TryGetOwnerBinding(accessExpression, out var ownerInfo))
-                                {
-                                    BindOwner(parameterExpression, ownerInfo.EntityType, ownerInfo.BsonDocExpression);
-                                }
-
-                                if (TryGetOrdinalBinding(accessExpression, out var ordinalExpression))
-                                {
-                                    BindOrdinal(parameterExpression, ordinalExpression);
-                                }
-
+                            case RootReferenceExpression:
+                                innerAccessExpression = DocParameter;
                                 break;
                             default:
                                 throw new InvalidOperationException(
@@ -311,22 +280,6 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
         }
 
         return base.VisitBinary(binaryExpression);
-    }
-
-    protected override Expression VisitBlock(BlockExpression node)
-    {
-        using (PushBindingScope())
-        {
-            return base.VisitBlock(node);
-        }
-    }
-
-    protected override Expression VisitLambda<T>(Expression<T> node)
-    {
-        using (PushBindingScope())
-        {
-            return base.VisitLambda(node);
-        }
     }
 
     /// <summary>
