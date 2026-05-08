@@ -54,20 +54,17 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
     /// <param name="rootEntityType">The <see cref="IEntityType"/> this projection relates to.</param>
     /// <param name="queryExpression">The <see cref="MongoQueryExpression"/> this visitor should use.</param>
     /// <param name="docParameter">The parameter that will hold the <see cref="BsonDocument"/> input parameter to the shaper.</param>
-    /// <param name="trackQueryResults">
-    /// <see langword="true"/> if the results from this query are being tracked for changes,
-    /// <see langword="false"/> if they are not.
-    /// </param>
+    /// <param name="trackingBehavior">The <see cref="QueryTrackingBehavior"/> for this query.</param>
     public MongoProjectionBindingRemovingExpressionVisitor(
         IEntityType rootEntityType,
         MongoQueryExpression queryExpression,
         ParameterExpression docParameter,
-        bool trackQueryResults)
+        QueryTrackingBehavior trackingBehavior)
     {
         _queryExpression = queryExpression;
         _rootEntityType = rootEntityType;
         DocParameter = docParameter;
-        _trackQueryResults = trackQueryResults;
+        _trackQueryResults = trackingBehavior == QueryTrackingBehavior.TrackAll;
     }
 
     protected override Expression VisitExtension(Expression extensionExpression)

@@ -15,6 +15,7 @@
 
 using System;
 using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
@@ -41,8 +42,8 @@ internal sealed class MongoMixedProjectionBindingRemovingExpressionVisitor
         IEntityType rootEntityType,
         MongoQueryExpression queryExpression,
         ParameterExpression docParameter,
-        bool trackQueryResults)
-        : base(rootEntityType, queryExpression, docParameter, trackQueryResults)
+        QueryTrackingBehavior trackingBehavior)
+        : base(rootEntityType, queryExpression, docParameter, trackingBehavior)
     {
         _queryExpression = queryExpression;
         _rootEntityType = rootEntityType;

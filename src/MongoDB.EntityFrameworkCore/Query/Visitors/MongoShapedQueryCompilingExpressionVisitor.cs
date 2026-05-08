@@ -77,8 +77,8 @@ internal sealed class MongoShapedQueryCompilingExpressionVisitor : ShapedQueryCo
 
         // Entity path: full BsonDocuments shaped into tracked/untracked entity instances
         return CompileShapedQuery(shapedQueryExpression, mongoQueryExpression, rootEntityType,
-            (bsonDoc, track) => new MongoProjectionBindingRemovingExpressionVisitor(
-                rootEntityType, mongoQueryExpression, bsonDoc, track));
+            (bsonDoc, behavior) => new MongoProjectionBindingRemovingExpressionVisitor(
+                rootEntityType, mongoQueryExpression, bsonDoc, behavior));
     }
 
     private MethodCallExpression VisitProjectedQuery(
@@ -112,18 +112,18 @@ internal sealed class MongoShapedQueryCompilingExpressionVisitor : ShapedQueryCo
         }
 
         return CompileShapedQuery(shapedQueryExpression, mongoQueryExpression, rootEntityType,
-            (bsonDoc, track) => new MongoMixedProjectionBindingRemovingExpressionVisitor(
-                rootEntityType, mongoQueryExpression, bsonDoc, track));
+            (bsonDoc, behavior) => new MongoMixedProjectionBindingRemovingExpressionVisitor(
+                rootEntityType, mongoQueryExpression, bsonDoc, behavior));
     }
 
     private MethodCallExpression CompileShapedQuery(
         ShapedQueryExpression shapedQueryExpression,
         MongoQueryExpression mongoQueryExpression,
         IEntityType rootEntityType,
-        Func<ParameterExpression, bool, System.Linq.Expressions.ExpressionVisitor> createBindingRemover)
+        Func<ParameterExpression, QueryTrackingBehavior, System.Linq.Expressions.ExpressionVisitor> createBindingRemover)
     {
         var bsonDocParameter = Expression.Parameter(typeof(BsonDocument), "bsonDoc");
-        var trackQueryResults = QueryCompilationContext.QueryTrackingBehavior == QueryTrackingBehavior.TrackAll;
+        var trackingBehavior = QueryCompilationContext.QueryTrackingBehavior;
 
         var shaperBody = shapedQueryExpression.ShaperExpression;
         shaperBody = new BsonDocumentInjectingExpressionVisitor().Visit(shaperBody);
@@ -132,7 +132,7 @@ internal sealed class MongoShapedQueryCompilingExpressionVisitor : ShapedQueryCo
 #else
         shaperBody = InjectStructuralTypeMaterializers(shaperBody);
 #endif
-        shaperBody = createBindingRemover(bsonDocParameter, trackQueryResults).Visit(shaperBody);
+        shaperBody = createBindingRemover(bsonDocParameter, trackingBehavior).Visit(shaperBody);
 
         var shaperLambda = Expression.Lambda(
             shaperBody,
