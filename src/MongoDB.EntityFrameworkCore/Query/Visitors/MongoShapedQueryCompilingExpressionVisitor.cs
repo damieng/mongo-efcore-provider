@@ -104,12 +104,11 @@ internal sealed class MongoShapedQueryCompilingExpressionVisitor : ShapedQueryCo
         }
 
         // Mixed path: projection contains entity references that LINQ V3 can't handle.
-        // Strip the Select, return full BsonDocuments, and build a client-side shaper.
-        if (mongoQueryExpression.CapturedExpression is MethodCallExpression
-                { Method: { Name: "Select", DeclaringType.Name: "Queryable" } } selectCall)
-        {
-            mongoQueryExpression.CapturedExpression = selectCall.Arguments[0];
-        }
+        // Strip the Select so the driver returns full BsonDocuments keyed by EF-configured
+        // element names; the client-side shaper handles the projection. The Select may sit
+        // directly on the captured expression, or under a no-arg cardinality terminator
+        // (Single/First/etc.) which we also need to rebind to the un-projected source type.
+        mongoQueryExpression.CapturedExpression = StripPushedDownSelect(mongoQueryExpression.CapturedExpression);
 
         return CompileShapedQuery(shapedQueryExpression, mongoQueryExpression, rootEntityType,
             (bsonDoc, behavior) => new MongoMixedProjectionBindingRemovingExpressionVisitor(
@@ -155,6 +154,35 @@ internal sealed class MongoShapedQueryCompilingExpressionVisitor : ShapedQueryCo
             Expression.Constant(standAloneStateManager),
             Expression.Constant(_threadSafetyChecksEnabled),
             Expression.Constant(shapedQueryExpression.ResultCardinality));
+    }
+
+    private static Expression? StripPushedDownSelect(Expression? captured)
+    {
+        if (captured is not MethodCallExpression call || call.Method.DeclaringType != typeof(Queryable))
+        {
+            return captured;
+        }
+
+        if (call.Method.Name == nameof(Queryable.Select) && call.Arguments.Count == 2)
+        {
+            return call.Arguments[0];
+        }
+
+        if (call.Method.IsGenericMethod
+            && call.Method.GetParameters().Length == 1
+            && call.Method.Name is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault)
+                or nameof(Queryable.First) or nameof(Queryable.FirstOrDefault)
+                or nameof(Queryable.Last) or nameof(Queryable.LastOrDefault)
+            && call.Arguments is [MethodCallExpression { Method: { Name: nameof(Queryable.Select), DeclaringType: var st } } innerSelect]
+            && st == typeof(Queryable))
+        {
+            var newSource = innerSelect.Arguments[0];
+            var newSourceType = newSource.Type.GetGenericArguments()[0];
+            var rebound = call.Method.GetGenericMethodDefinition().MakeGenericMethod(newSourceType);
+            return Expression.Call(rebound, newSource);
+        }
+
+        return captured;
     }
 
     private static (MongoQueryContext, MongoExecutableQuery) TranslateQuery<TSource>(
