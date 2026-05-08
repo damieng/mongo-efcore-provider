@@ -17,6 +17,7 @@ using Microsoft.EntityFrameworkCore;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
+using MongoDB.EntityFrameworkCore.Extensions;
 using MongoDB.EntityFrameworkCore.FunctionalTests.Entities.Guides;
 
 namespace MongoDB.EntityFrameworkCore.FunctionalTests.Query;
@@ -529,18 +530,18 @@ public class ProjectionTests(ReadOnlySampleGuidesFixture database)
         public bool hasRings { get; set; }
     }
 
-    private SingleEntityDbContext<PlanetWithLongOrder> CreateLongOrderContext()
-    {
-        var collection = database.MongoDatabase.GetCollection<PlanetWithLongOrder>("planets");
-        return SingleEntityDbContext.Create(collection, mb =>
-            mb.Entity<PlanetWithLongOrder>().Property(e => e.orderFromSun).HasConversion<int>());
-    }
-
     private class PlanetWithStringOrder
     {
         public ObjectId _id { get; set; }
         public string name { get; set; } = null!;
         public int orderFromSun { get; set; }
+    }
+
+    private SingleEntityDbContext<PlanetWithLongOrder> CreateLongOrderContext()
+    {
+        var collection = database.MongoDatabase.GetCollection<PlanetWithLongOrder>("planets");
+        return SingleEntityDbContext.Create(collection, mb =>
+            mb.Entity<PlanetWithLongOrder>().Property(e => e.orderFromSun).HasConversion<int>());
     }
 
     private SingleEntityDbContext<PlanetWithStringOrder> CreateStringOrderContext(string collectionName)

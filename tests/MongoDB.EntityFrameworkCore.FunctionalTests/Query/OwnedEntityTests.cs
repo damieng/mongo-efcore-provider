@@ -538,6 +538,34 @@ public class OwnedEntityTests(TemporaryDatabaseFixture database)
         public string name { get; set; }
     }
 
+    [Fact]
+    public void OwnedEntity_single_NoTrackingWithIdentityResolution_returns_correct_owned_entity_per_owner()
+    {
+        // Regression test: with !_trackQueryResults covering both NoTracking and
+        // NoTrackingWithIdentityResolution, all owned entities got the same synthetic principal
+        // key. The standalone state manager then collapsed distinct owned entities from different
+        // owners into a single cached instance, returning the wrong location for the second owner.
+        var collection = database.CreateCollection<PersonWithLocation>();
+        collection.WriteTestDocs([
+            new PersonWithLocation { name = "Owner1", location = Location1 },
+            new PersonWithLocation { name = "Owner2", location = Location2 }
+        ]);
+
+        using var db = SingleEntityDbContext.Create(collection,
+            optionsBuilderAction: x => x.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTrackingWithIdentityResolution));
+
+        var results = db.Entities.ToList();
+
+        var owner1 = results.Single(p => p.name == "Owner1");
+        var owner2 = results.Single(p => p.name == "Owner2");
+
+        Assert.Equal(Location1.latitude, owner1.location.latitude);
+        Assert.Equal(Location1.longitude, owner1.location.longitude);
+        Assert.Equal(Location2.latitude, owner2.location.latitude);
+        Assert.Equal(Location2.longitude, owner2.location.longitude);
+        Assert.NotSame(owner1.location, owner2.location);
+    }
+
     [Theory]
     [InlineData(QueryTrackingBehavior.TrackAll)]
     [InlineData(QueryTrackingBehavior.NoTracking)]

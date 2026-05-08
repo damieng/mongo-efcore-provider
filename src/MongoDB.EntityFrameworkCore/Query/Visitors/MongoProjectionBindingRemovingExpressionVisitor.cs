@@ -43,6 +43,7 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
     private readonly IEntityType _rootEntityType;
     private readonly ParameterExpression DocParameter;
     private readonly bool _trackQueryResults;
+    private readonly bool _useSyntheticOwnedKeys;
     private readonly Dictionary<ParameterExpression, Expression> _materializationContextBindings = new();
     private readonly Dictionary<Expression, ParameterExpression> _projectionBindings = new();
     private readonly Dictionary<Expression, (IEntityType EntityType, Expression BsonDocExpression)> _ownerMappings = new();
@@ -66,6 +67,7 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
         _rootEntityType = rootEntityType;
         DocParameter = docParameter;
         _trackQueryResults = trackingBehavior == QueryTrackingBehavior.TrackAll;
+        _useSyntheticOwnedKeys = trackingBehavior == QueryTrackingBehavior.NoTracking;
     }
 
     protected override Expression VisitExtension(Expression extensionExpression)
@@ -141,8 +143,8 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
                     _ownerMappings[accessExpression] = (objectArrayProjection.Navigation.DeclaringEntityType, objectArrayProjection.AccessExpression);
                     _ownerMappings[jObjectParameter] = (objectArrayProjection.Navigation.DeclaringEntityType, objectArrayProjection.AccessExpression);
                     _ordinalMappings[accessExpression] = Expression.Add(ordinalParameter, Expression.Constant(1, typeof(int)));
-                    var innerShaper = (BlockExpression)Visit(collectionShaperExpression.InnerShaper);
 
+                    var innerShaper = (BlockExpression)Visit(collectionShaperExpression.InnerShaper);
                     innerShaper = AddIncludes(innerShaper);
 
                     var entities = Expression.Call(
@@ -409,6 +411,14 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
 
                     if (ownerBsonDocExpression != null)
                     {
+                        if (_useSyntheticOwnedKeys
+                            && property.DeclaringType is IEntityType { } declaringEntityType
+                            && declaringEntityType.IsOwned()
+                            && principalProperty.Name == "_id")
+                        {
+                            return CreateSyntheticKeyValue(principalProperty, type);
+                        }
+
                         return CreateGetValueExpression(ownerBsonDocExpression, principalProperty, type);
                     }
                 }
@@ -573,9 +583,6 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
         Expression? DocumentExpression,
         string? FieldName,
         MemberInfo? MemberInfo);
-
-    private string? FindProjectionAlias(Expression expression)
-        => _queryExpression.Projection.FirstOrDefault(p => p.Expression.Equals(expression))?.Alias;
 
     private BlockExpression AddIncludes(BlockExpression shaperBlock)
     {
@@ -798,6 +805,42 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
         = typeof(MongoProjectionBindingRemovingExpressionVisitor).GetTypeInfo()
             .GetDeclaredMethod(nameof(PopulateCollection))!;
 
+    private static Expression CreateSyntheticKeyValue(IProperty principalProperty, Type type)
+    {
+        var nonNullableType = principalProperty.ClrType.UnwrapNullableType();
+        if (nonNullableType == typeof(ObjectId))
+        {
+            var value = Expression.Constant(new ObjectId("000000000000000000000001"));
+            return value.Type == type ? value : Expression.Convert(value, type);
+        }
+
+        if (nonNullableType == typeof(Guid))
+        {
+            var value = Expression.Constant(new Guid("00000000-0000-0000-0000-000000000001"));
+            return value.Type == type ? value : Expression.Convert(value, type);
+        }
+
+        if (nonNullableType == typeof(string))
+        {
+            var value = Expression.Constant("__mongo_ef_synthetic_owner_key");
+            return value.Type == type ? value : Expression.Convert(value, type);
+        }
+
+        if (nonNullableType == typeof(int))
+        {
+            var value = Expression.Constant(1);
+            return value.Type == type ? value : Expression.Convert(value, type);
+        }
+
+        if (nonNullableType == typeof(long))
+        {
+            var value = Expression.Constant(1L);
+            return value.Type == type ? value : Expression.Convert(value, type);
+        }
+
+        return Expression.Default(type);
+    }
+
     private static readonly MethodInfo IsAssignableFromMethodInfo
         = typeof(IReadOnlyEntityType).GetMethod(nameof(IReadOnlyEntityType.IsAssignableFrom), [
             typeof(IReadOnlyEntityType)
@@ -826,4 +869,7 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
             ? _queryExpression.GetMappedProjection(projectionBindingExpression.ProjectionMember).GetConstantValue<int>()
             : projectionBindingExpression.Index
               ?? throw new InvalidOperationException("Internal error - projection mapping has neither member nor index.");
+
+    private string? FindProjectionAlias(Expression expression)
+        => _queryExpression.Projection.FirstOrDefault(p => p.Expression.Equals(expression))?.Alias;
 }
