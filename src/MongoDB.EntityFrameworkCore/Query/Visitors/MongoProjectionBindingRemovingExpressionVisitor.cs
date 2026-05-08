@@ -43,9 +43,9 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
     private readonly ParameterExpression DocParameter;
     private readonly bool _trackQueryResults;
     private readonly Dictionary<ParameterExpression, Expression> _materializationContextBindings = new();
-    private readonly Dictionary<Expression, ParameterExpression> ProjectionBindings = new();
+    private readonly Dictionary<Expression, ParameterExpression> _projectionBindings = new();
     private readonly Dictionary<Expression, (IEntityType EntityType, Expression BsonDocExpression)> _ownerMappings = new();
-    private readonly Dictionary<Expression, Expression> _ordinalParameterBindings = new();
+    private readonly Dictionary<Expression, Expression> _ordinalMappings = new();
     private List<IncludeExpression> _pendingIncludes = [];
 
     /// <summary>
@@ -98,15 +98,15 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
                             throw new InvalidOperationException(CoreStrings.TranslationFailed(extensionExpression.Print()));
                     }
 
-                    var bsonArray = ProjectionBindings[objectArrayProjection];
+                    var bsonArray = _projectionBindings[objectArrayProjection];
                     var jObjectParameter = Expression.Parameter(typeof(BsonDocument), bsonArray.Name + "Object");
                     var ordinalParameter = Expression.Parameter(typeof(int), bsonArray.Name + "Ordinal");
 
                     var accessExpression = objectArrayProjection.InnerProjection.ParentAccessExpression;
-                    ProjectionBindings[accessExpression] = jObjectParameter;
+                    _projectionBindings[accessExpression] = jObjectParameter;
                     _ownerMappings[accessExpression] =
                         (objectArrayProjection.Navigation.DeclaringEntityType, objectArrayProjection.AccessExpression);
-                    _ordinalParameterBindings[accessExpression] = Expression.Add(
+                    _ordinalMappings[accessExpression] = Expression.Add(
                         ordinalParameter, Expression.Constant(1, typeof(int)));
 
                     var innerShaper = (BlockExpression)Visit(collectionShaperExpression.InnerShaper);
@@ -200,14 +200,14 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
                     if (projectionExpression is ObjectArrayProjectionExpression objectArrayProjectionExpression)
                     {
                         innerAccessExpression = objectArrayProjectionExpression.AccessExpression;
-                        ProjectionBindings[objectArrayProjectionExpression] = parameterExpression;
+                        _projectionBindings[objectArrayProjectionExpression] = parameterExpression;
                         fieldName ??= objectArrayProjectionExpression.Name;
                     }
                     else
                     {
                         var entityProjectionExpression = (EntityProjectionExpression)projectionExpression;
                         var accessExpression = entityProjectionExpression.ParentAccessExpression;
-                        ProjectionBindings[accessExpression] = parameterExpression;
+                        _projectionBindings[accessExpression] = parameterExpression;
                         fieldName ??= entityProjectionExpression.Name;
 
                         switch (accessExpression)
@@ -340,7 +340,7 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
                 var ownership = entityType.FindOwnership();
                 if (ownership?.IsUnique == false && property.IsOwnedTypeOrdinalKey())
                 {
-                    var readExpression = _ordinalParameterBindings[docExpression];
+                    var readExpression = _ordinalMappings[docExpression];
                     if (readExpression.Type != type)
                     {
                         readExpression = Expression.Convert(readExpression, type);
@@ -417,7 +417,7 @@ internal class MongoProjectionBindingRemovingExpressionVisitor : ExpressionVisit
         };
 
         var innerExpression = docExpression;
-        if (ProjectionBindings.TryGetValue(docExpression, out var innerVariable))
+        if (_projectionBindings.TryGetValue(docExpression, out var innerVariable))
         {
             innerExpression = innerVariable;
         }
