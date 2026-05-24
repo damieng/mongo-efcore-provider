@@ -147,7 +147,7 @@ public static class MongoPropertyBuilderExtensions
         this IConventionPropertyBuilder propertyBuilder,
         BinaryVectorDataType? binaryVectorDataType,
         bool fromDataAnnotation = false)
-        => propertyBuilder.CanSetAnnotation(MongoAnnotationNames.BinaryVectorDataType, fromDataAnnotation);
+        => propertyBuilder.CanSetAnnotation(MongoAnnotationNames.BinaryVectorDataType, binaryVectorDataType, fromDataAnnotation);
 
 
     /// <summary>
