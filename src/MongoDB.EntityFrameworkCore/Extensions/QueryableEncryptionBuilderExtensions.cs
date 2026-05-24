@@ -155,7 +155,8 @@ public static class QueryableEncryptionBuilderExtensions
         Action<QueryableEncryptionRangeBuilder<T>>? rangeBuilder = null)
     {
         builder.Metadata.SetQueryableEncryptionPrecision(precision);
+        IsEncryptedForRange(builder, minValue, maxValue, dataKeyId);
         rangeBuilder?.Invoke(new QueryableEncryptionRangeBuilder<T>(builder));
-        return IsEncryptedForRange(builder, minValue, maxValue, dataKeyId);
+        return builder;
     }
 }
