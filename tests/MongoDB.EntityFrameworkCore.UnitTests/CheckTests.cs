@@ -36,4 +36,27 @@ public class CheckTests
     {
         Assert.Throws<ArgumentException>(() => Check.NotEmptyButCanBeNull(""));
     }
+
+    [Fact]
+    public void InRange_returns_null_for_null()
+    {
+        Assert.Null(Check.InRange(null, 1, 4));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(4)]
+    public void InRange_returns_value_when_within_range(int value)
+    {
+        Assert.Equal(value, Check.InRange(value, 1, 4));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(5)]
+    public void InRange_throws_when_outside_range(int value)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => Check.InRange(value, 1, 4));
+    }
 }

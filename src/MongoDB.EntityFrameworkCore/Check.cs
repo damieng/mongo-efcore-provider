@@ -69,7 +69,7 @@ internal static class Check
 
     public static int? InRange(int? argument, int min, int max,
         [CallerArgumentExpression(nameof(argument))] string? parameterName = null)
-        => argument >= min && argument <= max
+        => argument is null || (argument >= min && argument <= max)
             ? argument
             : throw new ArgumentOutOfRangeException(parameterName, argument, $"Value must be between {min} and {max} inclusive.");
 }
