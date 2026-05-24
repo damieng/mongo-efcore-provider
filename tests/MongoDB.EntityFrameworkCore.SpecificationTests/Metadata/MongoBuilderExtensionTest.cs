@@ -13,6 +13,7 @@
 * limitations under the License.
 */
 
+using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -79,6 +80,26 @@ public static class MongoBuilderExtensionTest
         Assert.Equal(BinaryVectorDataType.Float32, propertyBuilder.Metadata.GetBinaryVectorDataType());
     }
 
+    [Fact]
+    public static void Can_set_queryable_encryption_sparsity_on_convention_property()
+    {
+        var typeBuilder = CreateBuilder().Entity(typeof(SampleEntity), ConfigurationSource.Convention)!;
+        var propertyBuilder = typeBuilder.Property(typeof(int), "SampleSparsity", ConfigurationSource.Convention)!;
+        IConventionProperty property = propertyBuilder.Metadata;
+
+        // Values within 1-4 are accepted.
+        Assert.Equal(3, property.SetQueryableEncryptionSparsity(3));
+        Assert.Equal(3, property.GetQueryableEncryptionSparsity());
+
+        // null unsets the value.
+        Assert.Null(property.SetQueryableEncryptionSparsity(null));
+        Assert.Null(property.GetQueryableEncryptionSparsity());
+
+        // Out-of-range values are rejected, matching the IMutableProperty overload.
+        Assert.Throws<ArgumentOutOfRangeException>(() => property.SetQueryableEncryptionSparsity(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => property.SetQueryableEncryptionSparsity(5));
+    }
+
     private static ModelBuilder CreateConventionModelBuilder()
         => MongoTestHelpers.Instance.CreateConventionBuilder();
 
@@ -90,5 +111,7 @@ public static class MongoBuilderExtensionTest
         public string SampleString { get; set; }
 
         public byte[] SampleVector { get; set; }
+
+        public int SampleSparsity { get; set; }
     }
 }

@@ -479,7 +479,7 @@ public static class MongoPropertyExtensions
         int? sparsity,
         bool fromDataAnnotation = false)
         => (int?)property
-            .SetOrRemoveAnnotation(MongoAnnotationNames.QueryableEncryptionSparsity, sparsity, fromDataAnnotation)?.Value;
+            .SetOrRemoveAnnotation(MongoAnnotationNames.QueryableEncryptionSparsity, Check.InRange(sparsity, 1, 4), fromDataAnnotation)?.Value;
 
     /// <summary>
     /// Gets the <see cref="ConfigurationSource" /> of the sparsity of a Queryable Encryption range property when targeting MongoDB.
