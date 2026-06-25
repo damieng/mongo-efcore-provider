@@ -21,6 +21,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Query;
+using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
 using MongoDB.EntityFrameworkCore.Diagnostics;
 using MongoDB.EntityFrameworkCore.Infrastructure;
@@ -157,7 +158,14 @@ public class MongoClientWrapper : IMongoClientWrapper
             return preconfiguredMongoClient;
         }
 
-        var mongoClientSettings = MongoClientSettingsHelper.CreateSettings(options, queryableEncryptionSchema);
-        return new MongoClient(mongoClientSettings);
+        if (createOwnMongoClient)
+        {
+            // Encryption clients carry model-derived AutoEncryptionOptions and must be built per-scope.
+            var mongoClientSettings = MongoClientSettingsHelper.CreateSettings(options, queryableEncryptionSchema);
+            return new MongoClient(mongoClientSettings);
+        }
+
+        // Plain connection-string / ClientSettings path: reuse a single client per configuration (EF-319).
+        return serviceProvider.GetRequiredService<SingletonMongoClientWrapper>().Client;
     }
 }

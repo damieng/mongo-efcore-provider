@@ -172,12 +172,14 @@ public static class MongoServiceCollectionExtensions
             .TryAdd<IQueryableMethodTranslatingExpressionVisitorFactory, MongoQueryableMethodTranslatingExpressionVisitorFactory>()
             .TryAdd<IShapedQueryCompilingExpressionVisitorFactory, MongoShapedQueryCompilingExpressionVisitorFactory>()
             .TryAdd<IModelRuntimeInitializer, MongoModelRuntimeInitializer>()
+            .TryAdd<ISingletonOptions, SingletonMongoClientWrapper>(p => p.GetRequiredService<SingletonMongoClientWrapper>())
             .TryAddProviderSpecificServices(
                 b => b
                     .TryAddScoped<ITransactionEnlistmentManager, MongoTransactionEnlistmentManager>()
                     .TryAddScoped<IMongoDatabaseCreator, MongoDatabaseCreator>()
                     .TryAddScoped<IQueryableEncryptionSchemaProvider, QueryableEncryptionSchemaProvider>()
                     .TryAddScoped<IMongoClientWrapper, MongoClientWrapper>()
+                    .TryAddSingleton<SingletonMongoClientWrapper, SingletonMongoClientWrapper>()
                     .TryAddSingleton<MongoShapedQueryCompilingExpressionVisitorDependencies,
                         MongoShapedQueryCompilingExpressionVisitorDependencies>()
                     .TryAddSingleton(new BsonSerializerFactory())

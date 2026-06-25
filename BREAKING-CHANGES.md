@@ -34,6 +34,26 @@ modelBuilder.Entity<Order>().OwnsOne(o => o.ShippingAddress);
 
 (or `OwnsMany` for collection navigations). If you want the new separate-collection behavior, no change is required. Models whose embedded types never had their own `DbSet` are unaffected, and the stored documents for those types are unchanged.
 
+### A single `MongoClient` is now shared per configuration
+
+#### Old behavior
+
+`IMongoClientWrapper` is registered as a scoped service, so for the connection-string and `MongoClientSettings` paths a new `MongoClient` was created for every `DbContext` instance. Two contexts sharing the same configuration therefore exposed two different `MongoClient` objects, and the provider never disposed the clients it created.
+
+#### New behavior
+
+For the connection-string and `MongoClientSettings` paths the provider now creates and shares a single `MongoClient` per configuration (per EF Core internal service provider), aligning with the MongoDB driver's guidance to give `MongoClient` a singleton lifetime. `IMongoClientWrapper.Client` therefore returns the same instance across `DbContext` instances that share a configuration, and the provider disposes that client when EF Core's internal service provider is disposed.
+
+A pre-configured client supplied via `UseMongoDB(IMongoClient, ...)` is unchanged: it is borrowed as-is, shared across contexts as before, and never disposed by the provider. Clients built for Client-Side Field Level Encryption / Queryable Encryption remain per-scope and are unaffected.
+
+#### Why
+
+To follow the driver's documented singleton-lifetime recommendation and stop fragmenting client object identity across contexts. See [EF-319](https://jira.mongodb.org/browse/EF-319).
+
+#### Mitigations
+
+No change is required for the common cases. If you depended on each `DbContext` owning a distinct `MongoClient` instance for the connection-string / `MongoClientSettings` paths, supply your own `IMongoClient` via `UseMongoDB(IMongoClient, ...)` to control client identity and lifetime yourself.
+
 ## Breaking changes in 8.4.0 / 9.1.0 / 10.0.0
 
 ### The element name for discriminators may have changed
