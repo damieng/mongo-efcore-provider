@@ -114,6 +114,17 @@ internal sealed partial class MongoProjectionBindingExpressionVisitor : Expressi
             case ConstantExpression:
                 return expression;
 
+            // Already a fully-resolved, index-based binding against this query (e.g. the flattened-element
+            // leaf TranslateSelectMany builds via AddToProjection for a primitive-collection SelectMany) —
+            // surviving here because EF's nav-expansion wraps SelectMany's result in a TransparentIdentifier
+            // and appends a `.Select(ti => ti.Inner)`, whose body ReplacingExpressionVisitor reduces
+            // directly to this node. No further translation is needed; pass it through unchanged. Scoped to
+            // the index-based form specifically (never the ProjectionMember form) so this doesn't mask
+            // otherwise-invalid ProjectionMember references from unrelated, still-unsupported shapes.
+            case ProjectionBindingExpression { Index: not null } projectionBindingExpression
+                when projectionBindingExpression.QueryExpression == _queryExpression:
+                return expression;
+
             case MemberExpression memberExpression:
                 var currentProjectionMember = GetCurrentProjectionMember();
                 _projectionMapping[currentProjectionMember] = memberExpression;
@@ -402,6 +413,19 @@ internal sealed partial class MongoProjectionBindingExpressionVisitor : Expressi
                         EnumerableMethods.Select.MakeGenericMethod(method.GetGenericArguments()),
                         shaper,
                         lambda);
+
+                // A primitive-collection property accessed with a no-predicate aggregate (e.g.
+                // p.mainAtmosphere.Count()) now arrives as Queryable.Count(prop.AsQueryable()) rather than
+                // Enumerable.Count(prop), because EF Core's nav-expansion treats primitive collections as
+                // queryable sources. visitedSource here is our flattened array-typed leaf (a
+                // ProjectionBindingExpression), not a real nested queryable, so rewrite to the Enumerable
+                // equivalent over that same leaf — restoring the pre-primitive-collection translation shape.
+                case nameof(Queryable.Count) or nameof(Queryable.LongCount) or nameof(Queryable.Any)
+                    when methodCallExpression.Arguments.Count == 1
+                         && visitedSource is not CollectionShaperExpression and not null:
+                    var enumerableMethod = typeof(Enumerable).GetMethods()
+                        .Single(m => m.Name == method.Name && m.GetParameters().Length == 1);
+                    return Expression.Call(enumerableMethod.MakeGenericMethod(method.GetGenericArguments()), visitedSource);
             }
         }
 
@@ -640,6 +664,15 @@ internal sealed partial class MongoProjectionBindingExpressionVisitor : Expressi
     {
         if (methodCallExpression.TryGetEFPropertyArguments(out var source, out var memberName))
         {
+            // EF8's nav-expansion wraps a primitive-collection property's shaper source in one or more
+            // nested IncludeExpressions (e.g. for `p.mainAtmosphere.Count()`) even with no user Include -
+            // unwrap down to the entity shaper underneath; this leaf doesn't need Include processing
+            // regardless.
+            while (source is IncludeExpression includeExpression)
+            {
+                source = includeExpression.EntityExpression;
+            }
+
             if (source is StructuralTypeShaperExpression { StructuralType: IEntityType entityType })
             {
                 var navigation = entityType.FindNavigation(memberName);

@@ -122,6 +122,7 @@ namespace MongoDB.EntityFrameworkCore.FunctionalTests.Design
                 typeof(string[]),
                 propertyInfo: typeof(CompiledModelTests.EveryType).GetProperty("aStringArray", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
                 fieldInfo: typeof(CompiledModelTests.EveryType).GetField("<aStringArray>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly));
+            var aStringArrayElementType = aStringArray.SetElementType(typeof(string));
 
             var aTimeOnly = runtimeEntityType.AddProperty(
                 "aTimeOnly",
@@ -156,6 +157,7 @@ namespace MongoDB.EntityFrameworkCore.FunctionalTests.Design
                 typeof(List<int>),
                 propertyInfo: typeof(CompiledModelTests.EveryType).GetProperty("anIntList", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly),
                 fieldInfo: typeof(CompiledModelTests.EveryType).GetField("<anIntList>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly));
+            var anIntListElementType = anIntList.SetElementType(typeof(int));
 
             var anIntRepresentedAsAString = runtimeEntityType.AddProperty(
                 "anIntRepresentedAsAString",

@@ -78,9 +78,16 @@ public class MongoTypeMappingSource(TypeMappingSourceDependencies dependencies)
     private MongoTypeMapping? FindCollectionMapping(in TypeMappingInfo mappingInfo)
     {
         var clrType = mappingInfo.ClrType!;
+
+        // A pre-resolved ElementTypeMapping means EF Core (e.g. via a property's primitive-collection
+        // IElementType) already looked up the element's mapping for us; use it directly instead of
+        // re-deriving it below. Dictionaries have no single "element" mapping in that sense, so a
+        // pre-resolved ElementTypeMapping never applies to them.
         if (mappingInfo.ElementTypeMapping != null)
         {
-            return null;
+            return clrType.TryGetItemType() == null
+                ? null
+                : CreateCollectionTypeMapping(clrType, clrType.TryGetItemType()!, mappingInfo.ElementTypeMapping);
         }
 
         var elementType = clrType.TryGetItemType();
@@ -110,10 +117,10 @@ public class MongoTypeMappingSource(TypeMappingSourceDependencies dependencies)
         return null;
     }
 
-    private MongoTypeMapping? CreateCollectionTypeMapping(Type collectionType, Type elementType)
+    private MongoTypeMapping? CreateCollectionTypeMapping(
+        Type collectionType, Type elementType, CoreTypeMapping? elementTypeMapping = null)
     {
-        var elementMappingInfo = new TypeMappingInfo(elementType);
-        var elementMapping = FindMapping(elementMappingInfo);
+        var elementMapping = elementTypeMapping ?? FindMapping(new TypeMappingInfo(elementType));
         return elementMapping == null
             ? null
             : new MongoTypeMapping(collectionType, CreateCollectionComparer(elementMapping, collectionType, elementType));

@@ -45,12 +45,22 @@ public sealed class UnsupportedQueriesTests(ReadOnlySampleGuidesFixture database
     }
 
     [Fact]
-    public void SelectMany_throws_because_target_is_not_primitive()
+    public void SelectMany_flattens_primitive_array()
     {
-        var collection = database.MongoDatabase.GetCollection<Customer>("Customers");
+        var collection = database.MongoDatabase.GetCollection<Customer>("SelectManyCustomers");
         var db = SingleEntityDbContext.Create(collection);
+        db.Entities.AddRange(
+            new Customer { _id = ObjectId.GenerateNewId(), name = "Alice", aliases = ["A1", "A2"] },
+            new Customer { _id = ObjectId.GenerateNewId(), name = "Bob", aliases = [] },
+            new Customer { _id = ObjectId.GenerateNewId(), name = "Carol", aliases = ["C1"] });
+        db.SaveChanges();
 
-        Assert.Throws<InvalidOperationException>(() => db.Entities.SelectMany(c => c.aliases).ToList());
+        var result = db.Entities.SelectMany(c => c.aliases).ToList();
+
+        Assert.Equal(3, result.Count);
+        Assert.Contains("A1", result);
+        Assert.Contains("A2", result);
+        Assert.Contains("C1", result);
     }
 
     [Fact]
@@ -95,11 +105,24 @@ public sealed class UnsupportedQueriesTests(ReadOnlySampleGuidesFixture database
     class SuperPlanet : Planet;
 
     [Fact]
-    public void SelectMany_cannot_translate_array()
+    public void SelectMany_over_owned_collection_navigation_cannot_be_translated()
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => _db.Planets.SelectMany(p => p.mainAtmosphere).ToList());
+        // Unlike a scalar primitive-collection property, an owned-collection element (e.g. parkingCars)
+        // carries a synthetic ordinal key derived from its array position, which only exists inside a
+        // collection-navigation's own per-element materialization loop - a flattened $unwind row has no
+        // such loop. Deliberately unsupported; see TranslateSelectManyCore's remarks.
+        Assert.Throws<InvalidOperationException>(() => _db.Planets.SelectMany(p => p.parkingCars).ToList());
+    }
 
-        Assert.Contains("p => p.mainAtmosphere", ex.Message);
+    [Fact]
+    public void SelectMany_flattens_planet_atmosphere_array()
+    {
+        var result = _db.Planets.SelectMany(p => p.mainAtmosphere).ToList();
+
+        // 8 planets, 20 total atmosphere gas entries (Mercury has none).
+        Assert.Equal(20, result.Count);
+        Assert.Contains("H2", result);
+        Assert.Contains("O2", result);
     }
 
     [Fact]

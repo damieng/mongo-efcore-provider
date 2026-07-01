@@ -25,6 +25,9 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
+using MongoDB.Driver;
+using MongoDB.Driver.Linq;
+using MongoDB.EntityFrameworkCore.Extensions;
 using MongoDB.EntityFrameworkCore.Query.Expressions;
 
 namespace MongoDB.EntityFrameworkCore.Query.Visitors;
@@ -172,6 +175,157 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
         var newShaper = _projectionBindingExpressionVisitor.Translate(mongoQueryExpression, newSelectorBody);
 
         return source.UpdateShaperExpression(newShaper);
+    }
+
+    protected override ShapedQueryExpression? TranslateSelectMany(
+        ShapedQueryExpression source, LambdaExpression collectionSelector, LambdaExpression resultSelector)
+        => TranslateSelectManyCore(source, collectionSelector, resultSelector);
+
+    protected override ShapedQueryExpression? TranslateSelectMany(
+        ShapedQueryExpression source, LambdaExpression collectionSelector)
+        => TranslateSelectManyCore(source, collectionSelector, resultSelector: null);
+
+    private static readonly MethodInfo MqlFieldMethodInfo =
+        typeof(Mql).GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Single(m => m.Name == nameof(Mql.Field) && m.GetParameters().Length == 3);
+
+    /// <summary>
+    /// Translates <c>SelectMany</c> over a scalar primitive-collection property (e.g. <c>string[]</c>)
+    /// into a new shaper for the flattened element, optionally combined with the outer shaper via
+    /// <paramref name="resultSelector"/>. The driver's own LINQ v3 provider renders the resulting
+    /// <c>SelectMany</c> call (still captured on <see cref="MongoQueryExpression.CapturedExpression"/>) to
+    /// <c>$unwind</c> — this method only has to get the EF-side shaper right, mirroring how
+    /// <see cref="TranslateJoinCore"/> rebinds shapers for Join without building any pipeline stages itself.
+    /// </summary>
+    /// <remarks>
+    /// SelectMany over an embedded/owned collection navigation (e.g. <c>OwnsMany</c>) is deliberately
+    /// <em>not</em> supported here: owned-collection elements carry a synthetic ordinal key
+    /// (<c>PrimaryKeyDiscoveryConvention</c>) computed from the element's array position, which
+    /// only exists inside a <see cref="CollectionShaperExpression"/>'s per-element materialization loop
+    /// (the ordinal parameter fed to <c>Enumerable.SelectWithOrdinal</c>). A flattened <c>$unwind</c> row
+    /// has no such loop and MongoDB's driver-generated <c>$unwind</c> doesn't expose the array index by
+    /// default, so the element's key can't be materialized — this falls back to <see langword="null"/>
+    /// (EF's standard "could not be translated" failure) same as any other unrepresentable shape.
+    /// Correlated/cross-collection collection selectors (subqueries) fall back the same way.
+    /// </remarks>
+    private static ShapedQueryExpression? TranslateSelectManyCore(
+        ShapedQueryExpression source, LambdaExpression collectionSelector, LambdaExpression? resultSelector)
+    {
+        var mongoQueryExpression = (MongoQueryExpression)source.QueryExpression;
+
+        var collectionBody = UnwrapCollectionSelectorBody(
+            ReplacingExpressionVisitor.Replace(collectionSelector.Parameters[0], source.ShaperExpression, collectionSelector.Body));
+
+        Expression? innerSource;
+        MemberInfo? memberInfo = null;
+        string? memberName = null;
+        if (collectionBody is MethodCallExpression efPropertyCall && efPropertyCall.TryGetEFPropertyArguments(out var efSource, out var efMemberName))
+        {
+            innerSource = efSource;
+            memberName = efMemberName;
+        }
+        else if (collectionBody is MemberExpression { Expression: not null } memberExpression)
+        {
+            innerSource = memberExpression.Expression;
+            memberInfo = memberExpression.Member;
+        }
+        else
+        {
+            return null;
+        }
+
+        if (TryGetEntityProjection(mongoQueryExpression, innerSource) is not { } entityProjection)
+        {
+            return null;
+        }
+
+        IPropertyBase? propertyBase;
+        if (memberInfo != null)
+        {
+            entityProjection.BindMember(memberInfo, innerSource.Type, out propertyBase);
+        }
+        else
+        {
+            entityProjection.BindMember(memberName!, innerSource.Type, out propertyBase);
+        }
+
+        if (propertyBase is not IProperty { IsPrimitiveCollection: true } property)
+        {
+            // Not a scalar primitive collection — including embedded/owned collection navigations
+            // (see remarks above) and anything else BindMember didn't resolve. Not representable.
+            return null;
+        }
+
+        Expression elementShaper = BuildScalarElementShaper(mongoQueryExpression, entityProjection, property);
+
+        if (resultSelector == null)
+        {
+            return source.UpdateShaperExpression(elementShaper);
+        }
+
+        var newResultSelectorBody = ReplacingExpressionVisitor.Replace(
+            resultSelector.Parameters[0], source.ShaperExpression,
+            ReplacingExpressionVisitor.Replace(resultSelector.Parameters[1], elementShaper, resultSelector.Body));
+
+        return source.UpdateShaperExpression(newResultSelectorBody);
+    }
+
+    /// <summary>
+    /// Builds a shaper for the per-row scalar value a primitive-collection property yields once the
+    /// driver has unwound it. The projected value is read through <see cref="Mql.Field{TDocument,TField}"/>
+    /// (rather than the property's own <see cref="MemberExpression"/>) specifically so it takes the
+    /// generic-alias read path in <see cref="MongoProjectionBindingRemovingExpressionVisitor"/> instead of
+    /// the property-serializer path — after <c>$unwind</c> the field holds one element, not the array the
+    /// property's own serializer expects.
+    /// </summary>
+    private static Expression BuildScalarElementShaper(
+        MongoQueryExpression queryExpression, EntityProjectionExpression entityProjection, IProperty property)
+    {
+        var elementType = property.GetElementType()!;
+        var elementClrType = elementType.ClrType;
+        var elementName = property.GetElementName();
+
+        var mqlField = MqlFieldMethodInfo.MakeGenericMethod(entityProjection.EntityType.ClrType, elementClrType);
+        var fieldAccess = Expression.Call(
+            null, mqlField,
+            new RootReferenceExpression(entityProjection.EntityType),
+            Expression.Constant(elementName),
+            Expression.Constant(MongoDB.Bson.Serialization.BsonSerializer.LookupSerializer(elementClrType)));
+
+        var projectionIndex = queryExpression.AddToProjection(fieldAccess, elementName);
+        return new ProjectionBindingExpression(queryExpression, projectionIndex, elementClrType);
+    }
+
+    private static EntityProjectionExpression? TryGetEntityProjection(MongoQueryExpression queryExpression, Expression shaperExpression)
+    {
+        if (shaperExpression is not StructuralTypeShaperExpression { ValueBufferExpression: ProjectionBindingExpression binding })
+        {
+            return null;
+        }
+
+        var mapped = binding.ProjectionMember is { } member
+            ? queryExpression.GetMappedProjection(member)
+            : queryExpression.Projection[binding.Index!.Value].Expression;
+
+        return mapped as EntityProjectionExpression;
+    }
+
+    /// <summary>
+    /// Strips the <c>.AsQueryable()</c> wrapper EF Core's nav-expansion adds around a primitive-collection
+    /// property access in a SelectMany collection selector (EF needs an <see cref="IQueryable{T}"/> to run
+    /// its own expansion machinery over) before we ever see it.
+    /// </summary>
+    private static Expression UnwrapCollectionSelectorBody(Expression expression)
+    {
+        expression = expression.RemoveConvert();
+
+        if (expression is MethodCallExpression { Method.Name: nameof(Queryable.AsQueryable) } asQueryableCall
+            && asQueryableCall.Arguments.Count == 1)
+        {
+            return asQueryableCall.Arguments[0].RemoveConvert();
+        }
+
+        return expression;
     }
 
     protected override ShapedQueryExpression CreateShapedQueryExpression(IEntityType entityType)
@@ -769,13 +923,6 @@ internal sealed class MongoQueryableMethodTranslatingExpressionVisitor : Queryab
         => null;
 
     protected override ShapedQueryExpression? TranslateReverse(ShapedQueryExpression source)
-        => null;
-
-    protected override ShapedQueryExpression? TranslateSelectMany(ShapedQueryExpression source, LambdaExpression collectionSelector,
-        LambdaExpression resultSelector)
-        => null;
-
-    protected override ShapedQueryExpression? TranslateSelectMany(ShapedQueryExpression source, LambdaExpression selector)
         => null;
 
     protected override ShapedQueryExpression? TranslateSingleOrDefault(ShapedQueryExpression source, LambdaExpression? predicate,

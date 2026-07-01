@@ -1104,12 +1104,17 @@ public class ProjectionTests(ReadOnlySampleGuidesFixture database)
     }
 
     [Fact]
-    public void Select_many_not_supported()
+    public void SelectMany_flattens_array_with_result_selector()
     {
-        Assert.ThrowsAny<Exception>(() =>
-            _db.Planets
-                .SelectMany(p => p.mainAtmosphere, (p, a) => new { p.name, Atmosphere = a })
-                .ToList());
+        var results = _db.Planets
+            .SelectMany(p => p.mainAtmosphere, (p, a) => new { p.name, Atmosphere = a })
+            .ToList();
+
+        // 8 planets, 20 total atmosphere gas entries (Mercury has none).
+        Assert.Equal(20, results.Count);
+        Assert.Contains(results, r => r.name == "Earth" && r.Atmosphere == "O2");
+        Assert.Contains(results, r => r.name == "Jupiter" && r.Atmosphere == "H2");
+        Assert.DoesNotContain(results, r => r.name == "Mercury");
     }
 
     [Fact]
